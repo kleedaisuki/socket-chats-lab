@@ -51,6 +51,38 @@ project files stay in this repository's `.cache/` or `.temp/` directories.
 
 ## PostgreSQL-backed use
 
+### Windows clients with a WSL backend
+
+For the local split deployment, `scripts/hybrid.py` uses the existing native
+MSVC build in `.cache/build/msvc` and Linux build in `.cache/build/linux`, plus
+an already-running WSL PostgreSQL instance. Run it with **Windows Python**:
+
+```console
+python scripts/hybrid.py start
+python scripts/hybrid.py open
+python scripts/hybrid.py status
+```
+
+`open` creates an Alice/Bob Windows Terminal split. The server listens on WSL
+loopback port 7777; Windows account daemons connect through localhost forwarding.
+The launcher creates a dedicated `socket_chat_hybrid` database/role, refuses to
+take over an existing database without its configuration, and keeps credentials,
+logs and account state under a protected `.cache/hybrid/` directory.
+
+```console
+python scripts/hybrid.py verify
+python scripts/hybrid.py attach --user alice
+python scripts/hybrid.py restart-server
+python scripts/hybrid.py stop
+```
+
+`verify` briefly interrupts only this chat server to test real native Windows
+TUI/daemon reconnect and PostgreSQL persistence. It leaves the stack running.
+`stop` stops the application processes, **not PostgreSQL**, and retains data.
+See [live hybrid validation](docs/hybrid-validation.md) for evidence and limits.
+
+### Database setup for other deployments
+
 Install your operating system's libpq development package and PostgreSQL client
 tools. For example, on Ubuntu: `sudo apt install g++ cmake ninja-build libpq-dev
 postgresql-client`. Run PostgreSQL separately, with a UTF-8 database owned by a
