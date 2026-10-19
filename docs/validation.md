@@ -173,7 +173,9 @@ native socket IO, the following full local suites passed:
 | --- | --- | ---: |
 | Windows MSVC Debug | 13/13 | 18.24 s |
 | Windows MinGW Debug | 13/13 | 11.80 s |
-| WSL2 Linux Debug, PostgreSQL-enabled build | 13/13 | 38.11 s |
+| WSL2 Linux Debug, PostgreSQL-enabled build | 13/13 | 39.54 s |
+| WSL2 Linux Debug, forced poll, CTest -j4 | 13/13 | 28.93 s |
+| WSL2 Linux Debug, ASan + UBSan, CTest -j4 | 13/13 | 32.13 s |
 
 Windows includes native ConPTY server-daemon-client input/edit/send journeys and
 native console surrogate/repeat/mode restoration fixtures. POSIX includes real
@@ -187,3 +189,11 @@ See `docs/interactive-latency.md` for same-host original/new native input timing
 and `docs/terminal-validation.md` for precise behavioral assertions and limits.
 No visible user applications were restarted for these isolated fixtures. The
 hybrid application's PostgreSQL cluster and existing account data were retained.
+
+The latter two runs include the held-partial-history cancellation regression.
+Sanitizer flags instrument application targets; the external FTXUI library is
+executed by these journeys but is not fully sanitizer-instrumented. Leak checking
+and immediate termination on ASan/UBSan errors were enabled. No diagnostics were
+reported. Updated MSVC and MinGW full-suite reruns after the final cancellation
+fix also passed 13/13 (17.59 s and 11.00 s). Installed MSVC binaries passed CLI
+startup and the FTXUI license was included in the install tree.

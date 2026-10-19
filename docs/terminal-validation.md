@@ -154,3 +154,53 @@ All preceding recent-history, cursor, uncertainty, older-window traversal and
 terminal-restoration checks also passed. The regression therefore fails the
 saved pre-fix binary and passes the corrected binary without weakening any
 existing scenario. `git diff --check` reported no whitespace errors.
+
+## Additional FTXUI poll and instrumented application matrix
+
+The existing WSL Debug trees were reconfigured and rebuilt with at most four
+parallel build jobs, then tested with `ctest --output-on-failure -j 4`:
+
+| Configuration | Complete suite | Total CTest wall time | Native PTY | State/race PTY |
+| --- | --- | ---: | ---: | ---: |
+| `CHAT_FORCE_POLL=ON`, `CHAT_WITH_POSTGRES=OFF` | 13/13 passed | 28.93 s | 4.93 s | 26.06 s |
+| `CHAT_SANITIZERS=ON`, `CHAT_WITH_POSTGRES=OFF` | 13/13 passed | 32.13 s | 5.16 s | 27.31 s |
+
+These runs include FTXUI interaction, 500-message historical-window eviction,
+held-short-page cancellation, explicit read visibility, reconnection, and the
+nonterminal protocol/server/storage/cache/session/dependency/operations suites.
+Neither configuration produced build warnings/errors or ASan/UBSan diagnostics.
+Sanitizer execution explicitly used
+`ASAN_OPTIONS=detect_leaks=1:abort_on_error=1` and
+`UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1`.
+
+Exact configuration/build/test procedure (repository-root shell):
+
+```sh
+source_dir="$PWD/.cache/build/linux/_deps/ftxui-src"
+cmake -S . -B .cache/build/poll \
+  -DCHAT_FORCE_POLL=ON -DCHAT_WITH_POSTGRES=OFF \
+  -DFETCHCONTENT_SOURCE_DIR_FTXUI="$source_dir"
+cmake --build .cache/build/poll -j 4
+ctest --test-dir .cache/build/poll --output-on-failure -j 4
+
+cmake -S . -B .cache/build/sanitize \
+  -DCHAT_SANITIZERS=ON -DCHAT_WITH_POSTGRES=OFF \
+  -DFETCHCONTENT_SOURCE_DIR_FTXUI="$source_dir"
+cmake --build .cache/build/sanitize -j 4
+ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 \
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+  ctest --test-dir .cache/build/sanitize --output-on-failure -j 4
+```
+
+`configure-validation.log`, `build-validation.log`, and `ctest-validation.log`
+are retained in each build directory; complete individual test output is in
+`Testing/Temporary/LastTest.log`. The builds reuse the already downloaded and
+patched pinned FTXUI source from the main Linux build. Fresh downloading is not
+part of this local matrix. Compile-command inspection confirms application
+`tui.cpp` and `view.cpp` carry `-fsanitize=address,undefined`; external FTXUI
+`input.cpp` does not. Thus the instrumented result covers application code while
+running real FTXUI, not complete instrumentation of third-party library code.
+
+Only isolated test-owned memory servers and daemons were started and cleaned up.
+The user's existing services stayed off, and PostgreSQL was not modified or
+stopped by this matrix.
