@@ -204,3 +204,40 @@ running real FTXUI, not complete instrumentation of third-party library code.
 Only isolated test-owned memory servers and daemons were started and cleaned up.
 The user's existing services stayed off, and PostgreSQL was not modified or
 stopped by this matrix.
+
+## macOS PTY harness portability correction (2026-10-20)
+
+The actual hosted macOS run built successfully but exposed two harness defects.
+The first Unicode send reached Bob; the next edited send stalled while the test
+thread blocked waiting on Bob without draining the PTY. FTXUI synchronously
+flushes screen output. XNU's tty output path can sleep at its output high-water
+mark, and its exit path can wait for queued output to drain, explaining why even
+SIGKILL followed by wait timed out during cleanup. This does not establish a
+fixed output-buffer size: `TTYHOG` is an input limit. See the
+[XNU tty implementation](https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/bsd/kern/tty.c)
+(`ttycheckoutq`, `ttwrite`, `ttywait`). No input-parser or application workaround
+was introduced.
+
+The harness now has one continuously draining reader, including while the test
+thread waits on protocol peers. Projection access is locked, and input/discovery
+response writes share a separate lock. Existing wait/drain APIs remain intact.
+Cleanup keeps the reader alive until the process group is reaped; the main
+journey also guarantees daemon/server cleanup if terminal cleanup raises.
+
+The second failure was macOS returning ENOTTY when the parent inspected a slave
+after its controlling-session leader exited. `tests/pty_launcher.py` now acts
+like a shell: it owns the controlling session, launches the real client in the
+same process group, waits for it, and records exact before/after terminal
+attributes through a private pipe **before** its own exit can hang up the PTY.
+The parent compares all flags, speeds and control characters with its original
+snapshot. Linux and macOS use this same path; Darwin restoration checks are not
+skipped. Alternate-screen and cursor-restoration assertions are unchanged.
+
+Local WSL regression after this correction: both real PTY suites passed
+(`terminal_journey` 5.28 s, `tui_state_journey` 26.47 s; combined 26.52 s).
+Two isolated harness checks also passed: 256 KiB of synchronous child output
+completed while the parent waited without pumping, and deliberately leaving
+ECHO changed was rejected by the exact pre-hangup restoration assertion.
+The negative probe is retained as `.temp/pty-harness-probe.py` for this local
+investigation. These Linux results do not themselves claim a corrected macOS
+run; the actual hosted rerun remains the decisive macOS check.

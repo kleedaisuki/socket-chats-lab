@@ -237,3 +237,43 @@ The follow-up history workload exposed another cache policy problem: a deep scro
 A separate at-most4096-record height memo stores message identity, width, body length, standard-library source fingerprint and row count. Its allocation is included in the existing8MiB budget; it retains no duplicate bodies. This is an ephemeral non-security memoization fingerprint, never an authentication/tenant/protocol identifier. Exact canonical-body equality still guards the wrapped-body LRU. Fully skipped messages use only height metadata, so they do not evict the viewport's wrapped lines. Mutation, width and pointer reuse are detected by the height key/fingerprint; the root's canonical message model remains authoritative.
 
 `maximum_scroll(state, columns, rows)` sums cached logical row counts only for the active room and subtracts the smallest actual message viewport (maximum composer height). Clamp PageUp to this value, and clamp again when terminal dimensions change: otherwise a previously valid narrow-window offset could overshoot after a wider resize. Repeated PageUp thus stops on a populated oldest page rather than accumulating an enormous offset requiring many PageDown presses. Tiny fallback returns0. Tests assert the maximum Chinese-message page contains START (not an empty history warning),100 repeated clamped PageUps stay at the same bound,500-message oldest-page remains reachable, and changed bodies invalidate skipped-row height metadata. Full GCC warning set and linked focused view tests passed.
+
+## macOS PTY harness backpressure investigation (2026-10-20)
+
+The actual macOS CI run stored in `.cache/ci/tui-macos-portability.log`
+failed waiting for Bob to receive the second edited message (`甲丙乙丁`), and
+cleanup then timed out even after sending SIGKILL. The first Unicode editing
+message passed. Independent recent-history rendering passed before the harness
+queried a detached BSD slave and received ENOTTY. These observations do not
+establish a macOS Unicode editor defect.
+
+Source investigation found the same POSIX FTXUI input parser and glyph-editing
+implementation on Linux and macOS; the exact Home/End/Right/Left/Delete escape
+sequences used by the test are explicitly supported. In contrast, the original
+harness reads the PTY master only while waiting for screen predicates; its Bob
+socket receive waits do not consume terminal output. FTXUI `App::Internal::TerminalFlush`
+is a synchronous cout write+flush. A terminal emulator must continue consuming
+output even when a test waits on an independent socket.
+
+Apple's XNU `tty.c::ttycheckoutq` sleeps when the output queue exceeds its high
+watermark, and `ttywait` is explicitly used by proc_exit/vproc_exit to wait for
+output drain. Thus an undrained PTY can stall screen output, prevent later input
+from being handled by the same UI thread, and also stall process exit. This
+mechanism matches the failure shape; the decisive acceptance evidence is a rerun
+with a continuously reading master, not changing the expected Unicode body or
+adding sleeps between keys. Do not quote TTYHOG=1024 as total PTY output capacity:
+that constant governs input discipline, while actual output watermarks are
+computed separately.
+
+The validator owns the harness correction: one continuous output reader like a
+real terminal emulator, plus a persistent session owner that samples exact
+post-chat terminal modes before BSD session-leader hangup detaches the slave.
+No application input/parser changes were made for this investigation.
+
+Primary sources:
+- <https://github.com/ArthurSonzogni/FTXUI/blob/v7.0.3/src/ftxui/component/app.cpp>
+  (`TerminalFlush`, POSIX `FetchTerminalEvents`)
+- <https://github.com/ArthurSonzogni/FTXUI/blob/v7.0.3/src/ftxui/component/terminal_input_parser.cpp>
+- <https://github.com/ArthurSonzogni/FTXUI/blob/v7.0.3/src/ftxui/component/input.cpp>
+- <https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/bsd/kern/tty.c>
+  (`ttycheckoutq`, `ttywait`, `ttwrite`)

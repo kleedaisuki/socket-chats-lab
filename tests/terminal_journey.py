@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timedelta, timezone
 import errno
+import json
 import os
 from pathlib import Path
 import re
@@ -13,14 +14,30 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 from client_journey import status
 from journey import CREDENTIALS, Process, ROOT, endpoint, require, send_message
 from wire import Peer
+from pty_launcher import snapshot
 
 sys.path.insert(0, str(ROOT / "scripts"))
 from terminal_probe import Projection
+
+
+class LockedProjection(Projection):
+    def __init__(self, columns, rows, lock):
+        self.lock = lock
+        super().__init__(columns, rows)
+
+    def feed(self, data):
+        with self.lock:
+            super().feed(data)
+
+    def text(self):
+        with self.lock:
+            return super().text()
 
 
 class Terminal:
@@ -30,35 +47,60 @@ class Terminal:
         import termios
         self.master, self.slave = pty.openpty()
         self.original = termios.tcgetattr(self.slave)
+        self.original_snapshot = snapshot(self.slave)
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
-        self.screen = Projection(columns, rows)
+        self.lock = threading.RLock()
+        self.changed = threading.Condition(self.lock)
+        self.write_lock = threading.Lock()
+        self.stop = threading.Event()
+        self.reader_errors = []
+        self.screen = LockedProjection(columns, rows, self.lock)
         self.output = bytearray()
         self.query_tail = b""
-        self.process = subprocess.Popen(
-            argv, env=env, stdin=self.slave, stdout=self.slave, stderr=self.slave,
-            start_new_session=True,
-            preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0))
+        self.report_fd, report_writer = os.pipe()
+        try:
+            self.process = subprocess.Popen(
+                [sys.executable, str(Path(__file__).with_name("pty_launcher.py")), str(report_writer), *argv],
+                env=env, stdin=self.slave, stdout=self.slave, stderr=self.slave,
+                pass_fds=(report_writer,), start_new_session=True,
+                preexec_fn=lambda: fcntl.ioctl(0, termios.TIOCSCTTY, 0))
+        finally:
+            os.close(report_writer)
+        self.reader = threading.Thread(target=self._read, daemon=True)
+        self.reader.start()
+
+    def _read(self):
+        try:
+            while not self.stop.is_set():
+                if not select.select([self.master], [], [], .05)[0]:
+                    continue
+                chunk = os.read(self.master, 65536)
+                if not chunk:
+                    return
+                with self.changed:
+                    self.output.extend(chunk)
+                    self.screen.feed(chunk)
+                    self.changed.notify_all()
+                # Reply to discovery while the test thread waits on network IO.
+                query = self.query_tail + chunk
+                old = len(self.query_tail)
+                for match in re.finditer(rb"\x1b\[(?:6n|c|0c|>c|>0c)", query):
+                    if match.end() > old:
+                        self.write(b"\x1b[1;1R" if match.group().endswith(b"6n") else b"\x1b[?1;2c")
+                self.query_tail = query[-16:]
+        except OSError as error:
+            if not self.stop.is_set() and error.errno not in (errno.EIO, errno.ENXIO):
+                self.reader_errors.append(repr(error))
+        except BaseException as error:
+            self.reader_errors.append(repr(error))
+        finally:
+            with self.changed:
+                self.changed.notify_all()
 
     def pump(self, timeout=.05):
-        if not select.select([self.master], [], [], timeout)[0]:
-            return
-        try:
-            chunk = os.read(self.master, 65536)
-        except OSError as error:
-            if error.errno != errno.EIO:
-                raise
-            return
-        self.output.extend(chunk)
-        self.screen.feed(chunk)
-        # Reply to FTXUI's terminal discovery even when a query spans reads.
-        query = self.query_tail + chunk
-        old = len(self.query_tail)
-        for match in re.finditer(rb"\x1b\[(?:6n|c|0c|>c|>0c)", query):
-            if match.end() <= old:
-                continue
-            answer = b"\x1b[1;1R" if match.group().endswith(b"6n") else b"\x1b[?1;2c"
-            os.write(self.master, answer)
-        self.query_tail = query[-16:]
+        with self.changed:
+            self.changed.wait(timeout)
+        require(not self.reader_errors, f"terminal reader failed: {self.reader_errors}")
 
     def drain(self, seconds=.2):
         deadline = time.monotonic() + seconds
@@ -81,7 +123,10 @@ class Terminal:
                              f"exit={self.process.poll()}, unknown VT={self.screen.unknown}")
 
     def write(self, text):
-        os.write(self.master, text.encode("utf-8") if isinstance(text, str) else text)
+        data = text.encode("utf-8") if isinstance(text, str) else text
+        with self.write_lock:
+            while data:
+                data = data[os.write(self.master, data):]
 
     def command(self, text):
         self.write(text + "\r")
@@ -90,19 +135,23 @@ class Terminal:
         import fcntl
         import termios
         self.drain()
-        self.screen = Projection(columns, rows)
+        with self.lock:
+            self.screen = LockedProjection(columns, rows, self.lock)
         fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
         os.killpg(self.process.pid, signal.SIGWINCH)
 
     def finish(self, expected=0, interactive=True):
-        import termios
         deadline = time.monotonic() + 8
         while self.process.poll() is None and time.monotonic() < deadline:
             self.pump()
         require(self.process.poll() == expected,
                 f"terminal exit: expected {expected}, got {self.process.poll()}")
         self.drain(.05)
-        require(termios.tcgetattr(self.slave) == self.original,
+        report = json.loads(os.read(self.report_fd, 65536))
+        require("error" not in report, f"terminal launcher failed: {report}")
+        require(report["returncode"] == expected, f"application exit: {report}")
+        require(report["before"] == self.original_snapshot, "launcher changed original terminal attributes")
+        require(report["after"] == self.original_snapshot,
                 "terminal must restore all original termios attributes")
         if interactive:
             require(b"\x1b[?1049h" in self.output and b"\x1b[?1049l" in self.output,
@@ -110,11 +159,20 @@ class Terminal:
             require(b"\x1b[?25h" in self.output, "exit must restore cursor visibility")
 
     def close(self):
-        if self.process.poll() is None:
-            os.killpg(self.process.pid, signal.SIGKILL)
-            self.process.wait(timeout=5)
-        os.close(self.master)
-        os.close(self.slave)
+        try:
+            if self.process.poll() is None:
+                try:
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                # Keep the output reader alive while reaping a tty-writing child.
+                self.process.wait(timeout=5)
+        finally:
+            self.stop.set()
+            self.reader.join(timeout=1)
+            os.close(self.master)
+            os.close(self.slave)
+            os.close(self.report_fd)
 
 
 def receive_text(peer, expected):
@@ -310,11 +368,15 @@ def main():
             broken.finish(expected=1, interactive=False)
             print("PASS terminal: real FTXUI PTY projection, Unicode editing, dedup, rooms/drafts, help, scroll-visible explicit read, OSC safety, narrow resize, offline same-UI reconnect, idle and terminal restoration")
         finally:
-            for terminal in terminals:
-                terminal.close()
-            if daemon:
-                daemon.close()
-            server.close()
+            try:
+                for terminal in terminals:
+                    terminal.close()
+            finally:
+                try:
+                    if daemon:
+                        daemon.close()
+                finally:
+                    server.close()
 
 
 if __name__ == "__main__":
