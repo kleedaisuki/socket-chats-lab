@@ -197,3 +197,43 @@ and immediate termination on ASan/UBSan errors were enabled. No diagnostics were
 reported. Updated MSVC and MinGW full-suite reruns after the final cancellation
 fix also passed 13/13 (17.59 s and 11.00 s). Installed MSVC binaries passed CLI
 startup and the FTXUI license was included in the install tree.
+
+
+## Hosted FTXUI matrix: actual execution (2026-10-20 UTC+8)
+
+[Actions run 39286126175](https://github.com/kleedaisuki/socket-chats-lab/actions/runs/39286126175)
+executed code commit `eb24fa738f5eccf7785db6fb940a09f004171609` on the
+independent `codex/native-socket-chat` branch. The five completed runner logs
+contain these actual results (2026-10-19 16:31–16:35 UTC):
+
+| Hosted configuration | Executed result |
+| --- | --- |
+| Windows / MSVC | 13/13, including real ConPTY Unicode/edit/send and native console restoration |
+| Ubuntu 24.04 / GCC | 13/13, including real PTY and bounded-history state journeys |
+| macOS ARM64 / AppleClang 21 | 13/13; terminal journey 5.01 s, expanded state journey 15.79 s, complete CTest 31.85 s |
+| Linux PostgreSQL 18 and forced poll | 13/13 PostgreSQL-enabled suites, explicit restart persistence and pool-termination recovery, then 13/13 forced-poll suites |
+| Linux ASan + UBSan | 13/13; no sanitizer diagnostics |
+
+Logs are retained under `.cache/ci/tui-accepted-{windows,linux,macos,postgres,sanitizers}.log`.
+The canonical runner job IDs are respectively `118172607668`, `118172607757`,
+`118172607528`, `118172606874`, and `118172607480`. The GitHub status API initially
+lagged behind completed runner logs; direct job-log downloads allowed failures
+and completed test execution to be inspected without relying on that stale view.
+
+The actual macOS build exposed a missing direct `<exception>` test include.
+After fixing it, native PTY execution exposed two harness issues, not grounds to
+remove the platform: the host must continuously drain synchronous terminal output
+while the main test thread waits on sockets, and a shell-like session owner must
+capture post-child modes before BSD hangup. Finally, the only remaining terminal
+attribute difference was XNU's automatic PENDIN state. A non-consuming FIONREAD
+query settles that state before comparing every flag, speed and control character.
+No flag is masked; no input is flushed/read/discarded; deliberately broken ECHO
+restoration still fails. Exact differences, primary sources, negative checks and
+real input-preservation evidence are in `docs/terminal-validation.md`.
+
+The final hosted macOS journey retains Unicode editing, independent peer payload
+checks, room drafts, explicit visible-read, offline reconnect, full 500-message
+window traversal, in-flight historical-page cancellation, and exact terminal
+restoration. All application-level wire and plain-CLI contracts remain intact.
+The user's Windows/WSL application stack remains stopped; PostgreSQL and retained
+account data have not been removed or restarted for these hosted fixtures.
