@@ -241,3 +241,27 @@ ECHO changed was rejected by the exact pre-hangup restoration assertion.
 The negative probe is retained as `.temp/pty-harness-probe.py` for this local
 investigation. These Linux results do not themselves claim a corrected macOS
 run; the actual hosted rerun remains the decisive macOS check.
+
+### Exact Darwin PENDIN state and non-consuming observation
+
+The next actual macOS diagnostic isolated the remaining difference to one
+kernel-maintained local-flag bit: before `lflag=1483`, after `lflag=536872395`,
+XOR/difference `536870912` (`0x20000000`, `PENDIN`). Every other flag, speed and
+control character matched. XNU's `TIOCSETA` path sets PENDIN automatically on a
+noncanonical-to-canonical transition; its `ttnread`/`FIONREAD` path invokes
+`ttypend` to finish reprocessing pending input and clears this transient state.
+The implementation is in the same
+[XNU tty source](https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/bsd/kern/tty.c).
+
+The common launcher `snapshot()` now performs `FIONREAD` immediately before
+`tcgetattr`, for both before and after observations on every POSIX platform.
+This observes ready input and settles the kernel's pending reprocessing without
+consuming a byte. It does **not** mask PENDIN or any other bit, call TCSAFLUSH,
+read input, or alter application code. Full attribute equality remains required.
+
+The local executable probe additionally queued `排队输入 🙂` plus newline in raw
+mode, restored canonical mode using TCSANOW, took the FIONREAD snapshot, then
+verified the queued UTF-8 bytes were still exactly readable. That check passed,
+as did the negative ECHO-restoration check and the 256 KiB continuous-drain
+check. The two Linux PTY suites passed again: 5.47 s and 27.31 s, combined
+27.41 s. A hosted macOS rerun is still required to confirm the Darwin correction.

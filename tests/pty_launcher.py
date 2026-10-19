@@ -7,7 +7,13 @@ import sys
 
 
 def snapshot(fd):
+    import array
+    import fcntl
     import termios
+    # XNU marks a raw-to-canonical transition PENDIN until queued input has
+    # been reprocessed. FIONREAD completes that work without consuming input.
+    queued = array.array("i", [0])
+    fcntl.ioctl(fd, termios.FIONREAD, queued, True)
     attributes = termios.tcgetattr(fd)
     return attributes[:6] + [[value[0] if isinstance(value, bytes) else value
                              for value in attributes[6]]]
