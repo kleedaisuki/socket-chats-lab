@@ -162,9 +162,10 @@ they are reproducible local smoke measurements, not advertised capacity. Add
 `.exe` to executable paths on Windows. See [validation record](docs/validation.md)
 for the actual configurations and results executed during development.
 
-GitHub Actions defines Linux/Windows/macOS native jobs, Linux PostgreSQL
-persistence/recovery, Linux forced-poll, and ASan/UBSan jobs. A checked-in workflow
-is not a claim that a cloud run has completed; see the validation record.
+GitHub Actions has passed all five hosted jobs: Linux/Windows/macOS native
+execution, Linux PostgreSQL persistence/recovery and forced-poll, and ASan/UBSan.
+See the [validation record](docs/validation.md#hosted-github-actions-validation)
+for the actual run, tested commit, and the corrected Windows SID-alias assertion.
 
 ## Design documentation
 

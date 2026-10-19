@@ -112,16 +112,52 @@ TCP_NODELAY investigation: same-source controls found no benefit, so the tuning
 was removed rather than keeping an unsupported optimization. A historical
 binary comparison was explicitly treated as confounded, not causal evidence.
 
-## GitHub Actions and unexecuted environments
+## Hosted GitHub Actions validation
 
 `.github/workflows/ci.yml` defines five cloud jobs: native Linux, Windows, macOS;
 Linux PostgreSQL/poll; Linux ASan/UBSan. Workflows run on push, pull request, or
 manual dispatch, with read-only repository permissions.
 
-No Git commit/push or cloud Actions run was performed in this task. The macOS
-branch has been implemented and reviewed against Apple socket guidance but was
-not executed locally. The checked-in workflow is ready to run after the changes
-are pushed; it is not reported as already green. Windows console logic was
-built and its process/ACL workflows tested, but interactive glyph appearance was
-not screenshot-verified. Unicode grapheme shaping remains explicitly out of
-scope.
+The application was committed and pushed to the independent branch
+`codex/native-socket-chat`; `main` was not modified. Hosted
+[run 39267732139](https://github.com/kleedaisuki/socket-chats-lab/actions/runs/39267732139)
+completed successfully for code commit
+`c0319c8e0dc7148b9f4d4214593d56105cc3f7c0` on 2026-10-19.
+
+| Hosted job | Actual compiler/image | Result |
+| --- | --- | --- |
+| Native Linux | GCC 13.3, Ubuntu 24.04 | 9/9 CTest suites passed |
+| Native Windows | MSVC 19.51, Windows 2025 / VS 2026 | 8/8 passed, including native ACL migration and reconnect |
+| Native macOS | AppleClang 21, macOS 26 ARM64 | 9/9 passed, including real PTY, socket and publication journeys |
+| Linux PostgreSQL and poll | GCC 13.3, Ubuntu 24.04, PostgreSQL 18 service | 9/9 PostgreSQL-enabled suites, both explicit persistence/recovery journeys, then 9/9 forced-poll suites passed |
+| Linux ASan and UBSan | GCC 13.3, Ubuntu 24.04 | 9/9 instrumented suites passed |
+
+The workflow conclusion and every one of its five job conclusions were
+`success`. This is hosted execution evidence, not inferred from a checked-in
+workflow or successful local builds. Job logs were retained under `.cache/ci/`
+for this checkout; canonical logs are available from the linked Actions run.
+
+### Windows runner-specific test failure and correction
+
+The [first hosted run](https://github.com/kleedaisuki/socket-chats-lab/actions/runs/39267284479)
+passed all non-Windows jobs but failed the Windows `client_reconnect` privacy
+assertion. The runner's current Administrator SID serialized in the security
+descriptor as `LA`; the test compared that display alias with the full token SID
+string and incorrectly rejected an owner-only DACL (`D:PAI(A;OICI;FA;;;LA)`).
+
+The fix inspects native ACL entries with `GetAce` and compares binary trustee
+SIDs with `EqualSid`, rather than parsing formatted identity text. Null/empty
+DACLs, non-allow entries and every other trustee are still rejected; protected
+directory inheritance is still required. The original Everyone-accessible
+migration fixture is retained. Local MinGW and MSVC reconnect journeys passed,
+and an additional negative probe confirmed an Everyone-accessible directory is
+still rejected. The subsequent hosted Windows runner passed the same full suite
+under its aliased account; no production permissions were weakened.
+
+See Microsoft's [ACCESS_ALLOWED_ACE layout](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-access_allowed_ace)
+and [SID aliases](https://learn.microsoft.com/en-us/windows/win32/secauthz/sid-strings)
+for the binary trustee layout and the `LA` representation.
+
+Interactive Windows glyph appearance was not screenshot-verified. Unicode
+grapheme shaping remains explicitly out of scope; hosted macOS PTY execution
+does not imply a complete terminal-emulator or grapheme-editing implementation.
