@@ -152,7 +152,8 @@ class Terminal:
         require(report["returncode"] == expected, f"application exit: {report}")
         require(report["before"] == self.original_snapshot, "launcher changed original terminal attributes")
         require(report["after"] == self.original_snapshot,
-                "terminal must restore all original termios attributes")
+                f"terminal must restore all original termios attributes: "
+                f"before={self.original_snapshot!r}, after={report['after']!r}")
         if interactive:
             require(b"\x1b[?1049h" in self.output and b"\x1b[?1049l" in self.output,
                     "fullscreen client must enter and restore alternate screen")
