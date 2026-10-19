@@ -1,0 +1,47 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {"major": 3, "minor": 25, "patch": 0},
+  "configurePresets": [
+    {
+      "name": "dev",
+      "displayName": "Native debug build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/.cache/build/dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_TESTING": "ON",
+        "CHAT_WITH_POSTGRES": "ON"
+      }
+    },
+    {
+      "name": "portable",
+      "inherits": "dev",
+      "displayName": "Dependency-free development backend",
+      "binaryDir": "${sourceDir}/.cache/build/portable",
+      "cacheVariables": {"CHAT_WITH_POSTGRES": "OFF"}
+    },
+    {
+      "name": "release",
+      "inherits": "dev",
+      "binaryDir": "${sourceDir}/.cache/build/release",
+      "cacheVariables": {"CMAKE_BUILD_TYPE": "Release"}
+    },
+    {
+      "name": "sanitize",
+      "inherits": "dev",
+      "binaryDir": "${sourceDir}/.cache/build/sanitize",
+      "cacheVariables": {"CHAT_SANITIZERS": "ON"}
+    }
+  ],
+  "buildPresets": [
+    {"name": "dev", "configurePreset": "dev"},
+    {"name": "portable", "configurePreset": "portable"},
+    {"name": "release", "configurePreset": "release"},
+    {"name": "sanitize", "configurePreset": "sanitize"}
+  ],
+  "testPresets": [
+    {"name": "dev", "configurePreset": "dev", "output": {"outputOnFailure": true}},
+    {"name": "portable", "configurePreset": "portable", "output": {"outputOnFailure": true}},
+    {"name": "sanitize", "configurePreset": "sanitize", "output": {"outputOnFailure": true}}
+  ]
+}

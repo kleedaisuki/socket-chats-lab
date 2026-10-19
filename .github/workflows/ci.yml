@@ -1,0 +1,93 @@
+name: Native chat
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chat-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable:
+    name: ${{ matrix.os }} native sockets
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Configure
+        run: cmake -S . -B .cache/build/ci -DCHAT_WITH_POSTGRES=OFF -DCMAKE_BUILD_TYPE=Debug
+      - name: Build
+        run: cmake --build .cache/build/ci --config Debug --parallel 4
+      - name: Native property tests and actual server-daemon-TUI journeys
+        run: ctest --test-dir .cache/build/ci -C Debug --output-on-failure
+
+  postgres:
+    name: Linux PostgreSQL and poll fallback
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: chat
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: chat_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chat -d chat_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CHAT_DB_DSN: host=127.0.0.1 port=5432 dbname=chat_test user=chat password=ci-only-password
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Install database development files
+        run: sudo apt-get update && sudo apt-get install -y libpq-dev postgresql-client ninja-build
+      - name: Configure epoll and PostgreSQL
+        run: cmake -S . -B .cache/build/ci -G Ninja -DCHAT_WITH_POSTGRES=ON -DCMAKE_BUILD_TYPE=Debug
+      - name: Build and test
+        run: |
+          cmake --build .cache/build/ci --parallel 4
+          ctest --test-dir .cache/build/ci --output-on-failure
+          python tests/journey.py --server .cache/build/ci/src/server/chat-server --daemon .cache/build/ci/src/client/chat-daemon --client .cache/build/ci/src/client/chat --postgres
+          python tests/postgres_recovery.py --server .cache/build/ci/src/server/chat-server
+      - name: Poll fallback portability
+        run: |
+          cmake -S . -B .cache/build/poll -G Ninja -DCHAT_FORCE_POLL=ON -DCHAT_WITH_POSTGRES=OFF -DCMAKE_BUILD_TYPE=Debug
+          cmake --build .cache/build/poll --parallel 4
+          ctest --test-dir .cache/build/poll --output-on-failure
+
+  sanitizers:
+    name: Linux ASan and UBSan
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Build with address and undefined-behavior instrumentation
+        run: |
+          cmake -S . -B .cache/build/sanitize -DCHAT_WITH_POSTGRES=OFF -DCHAT_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug
+          cmake --build .cache/build/sanitize --parallel 4
+          ctest --test-dir .cache/build/sanitize --output-on-failure

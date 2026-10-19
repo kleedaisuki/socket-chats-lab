@@ -1,0 +1,9 @@
+.cache/
+.temp/
+build/
+build-*/
+__pycache__/
+*.pyc
+.env
+.chat/
+CMakeUserPresets.json
