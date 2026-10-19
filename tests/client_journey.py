@@ -18,10 +18,21 @@ def windows_private_state(state, names):
         return
     import ctypes
     from ctypes import wintypes
-    import re
+
+    class AclHeader(ctypes.Structure):
+        _fields_ = [("revision", wintypes.BYTE), ("reserved", wintypes.BYTE),
+                    ("size", wintypes.WORD), ("count", wintypes.WORD),
+                    ("reserved2", wintypes.WORD)]
+
+    class AllowedAce(ctypes.Structure):
+        _fields_ = [("type", wintypes.BYTE), ("flags", wintypes.BYTE),
+                    ("size", wintypes.WORD), ("mask", wintypes.DWORD),
+                    ("sid_start", wintypes.DWORD)]
+
     security = ctypes.WinDLL("advapi32", use_last_error=True)
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel.LocalFree.argtypes = [ctypes.c_void_p]
     security.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD,
                                          ctypes.POINTER(wintypes.HANDLE)]
@@ -31,7 +42,9 @@ def windows_private_state(state, names):
                                               ctypes.c_void_p, ctypes.c_void_p,
                                               ctypes.c_void_p, ctypes.c_void_p,
                                               ctypes.POINTER(ctypes.c_void_p)]
-    security.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+    security.GetAce.argtypes = [ctypes.c_void_p, wintypes.DWORD,
+                                ctypes.POINTER(ctypes.c_void_p)]
+    security.EqualSid.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     security.ConvertSecurityDescriptorToStringSecurityDescriptorW.argtypes = [
         ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD,
         ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p]
@@ -47,14 +60,11 @@ def windows_private_state(state, names):
     finally:
         kernel.CloseHandle(token)
     sid = ctypes.cast(info, ctypes.POINTER(ctypes.c_void_p))[0]
-    sid_text = ctypes.c_void_p()
-    require(security.ConvertSidToStringSidW(sid, ctypes.byref(sid_text)), "cannot format user SID")
-    expected = ctypes.wstring_at(sid_text)
-    kernel.LocalFree(sid_text)
     for name in names:
         path = state/name if name else state
         descriptor = ctypes.c_void_p()
-        code = security.GetNamedSecurityInfoW(str(path), 1, 4, None, None, None, None,
+        dacl = ctypes.c_void_p()
+        code = security.GetNamedSecurityInfoW(str(path), 1, 4, None, None, ctypes.byref(dacl), None,
                                              ctypes.byref(descriptor))
         require(code == 0, f"cannot inspect {path} security: {code}")
         text = ctypes.c_void_p()
@@ -62,10 +72,16 @@ def windows_private_state(state, names):
             require(security.ConvertSecurityDescriptorToStringSecurityDescriptorW(
                 descriptor, 1, 4, ctypes.byref(text), None), "cannot format state DACL")
             sddl = ctypes.wstring_at(text)
-            aces = re.findall(r"\(([^)]+)\)", sddl)
-            require(bool(aces) and all(ace.split(";")[0] == "A" and
-                                      ace.split(";")[-1] == expected for ace in aces),
-                    f"{path} must allow only current user, not Everyone/Users: {sddl}")
+            require(bool(dacl), f"{path} must not have a null DACL")
+            count = ctypes.cast(dacl, ctypes.POINTER(AclHeader)).contents.count
+            require(count > 0, f"{path} must grant access to the current user")
+            for index in range(count):
+                ace = ctypes.c_void_p()
+                require(security.GetAce(dacl, index, ctypes.byref(ace)), "cannot inspect state ACE")
+                allowed = ctypes.cast(ace, ctypes.POINTER(AllowedAce)).contents
+                require(allowed.type == 0 and
+                        security.EqualSid(sid, ace.value + AllowedAce.sid_start.offset),
+                        f"{path} must allow only current user, not Everyone/Users: {sddl}")
             if not name:
                 require(sddl.startswith("D:P"), "state directory must block ACL inheritance")
         finally:
