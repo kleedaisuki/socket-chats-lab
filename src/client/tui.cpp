@@ -1,6 +1,7 @@
 #include "common.hpp"
 #include "console.hpp"
 #include "session.hpp"
+#include "theme.hpp"
 #include "view.hpp"
 #include <chat/utf8.hpp>
 #include <chrono>
@@ -644,16 +645,15 @@ class Chat
         options.cursor_position = &cursor_;
         options.on_enter = [this] { submit(); };
         options.on_change = [this] { state_.notice.clear(); };
+        options.transform = ui::theme::editor;
         input_ = Input(&draft_, "输入消息，Enter 发送…", options);
         auto send_style = ButtonOption::Simple();
         send_style.transform = [this](const EntryState& entry) {
-            auto value =
-                text("  发送 ↵  ") | bold |
-                color(state_.connection == "online" ? Color::RGB(108, 190, 181) : Color::GrayDark);
-            return entry.focused ? value | inverted : value;
+            return ui::theme::action(entry, state_.connection == "online");
         };
         send_button_ = Button("发送", [this] { submit(); }, send_style);
         auto menu = MenuOption::Vertical();
+        menu.entries_option.transform = ui::theme::room;
         menu.on_change = [this] {
             if (selected_ >= 0 && selected_ < static_cast<int>(room_names_.size()))
                 activate(room_names_[static_cast<std::size_t>(selected_)]);

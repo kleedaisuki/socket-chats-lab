@@ -1,7 +1,9 @@
+#include "../src/client/theme.hpp"
 #include "../src/client/view.hpp"
 #include "chat/utf8.hpp"
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <ftxui/dom/node.hpp>
 #include <ftxui/screen/screen.hpp>
@@ -15,6 +17,47 @@ void require(bool condition, const char* reason)
 {
     if (!condition)
         throw std::runtime_error(reason);
+}
+
+double luminance(std::uint32_t rgb)
+{
+    const auto channel = [](std::uint32_t value) {
+        const double scaled = static_cast<double>(value & 255) / 255;
+        return scaled <= 0.04045 ? scaled / 12.92 : std::pow((scaled + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * channel(rgb >> 16) + 0.7152 * channel(rgb >> 8) + 0.0722 * channel(rgb);
+}
+
+void theme_checks()
+{
+    namespace theme = client::ui::theme;
+    for (const auto background : {theme::canvas, theme::sidebar, theme::input, theme::selection}) {
+        for (const auto foreground : {theme::text,
+                                      theme::secondary,
+                                      theme::accent,
+                                      theme::success,
+                                      theme::warning,
+                                      theme::error}) {
+            const auto light = luminance(foreground);
+            const auto dark = luminance(background);
+            require((std::max(light, dark) + 0.05) / (std::min(light, dark) + 0.05) >= 4.5,
+                    "theme: text contrast below 4.5:1");
+        }
+    }
+    auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(30), ftxui::Dimension::Fixed(1));
+    ftxui::Render(screen, theme::editor({ftxui::text("draft") | ftxui::flex, false, true, false}));
+    require(!screen.CellAt(1, 0).inverted &&
+                screen.CellAt(1, 0).background_color == theme::rgb(theme::input) &&
+                screen.CellAt(1, 0).foreground_color == theme::rgb(theme::text),
+            "theme: focused editor must not invert the full input field");
+    ftxui::Render(screen, theme::room({"# lobby 2", true, true, true, 0}));
+    require(screen.CellAt(0, 0).character == ">" && screen.CellAt(0, 0).underlined &&
+                !screen.CellAt(0, 0).inverted &&
+                screen.CellAt(0, 0).background_color == theme::rgb(theme::selection),
+            "theme: room selection/focus needs a non-color cue and explicit dark background");
+    ftxui::Render(screen, theme::action({"发送", false, false, true, 0}, true));
+    require(screen.CellAt(2, 0).underlined && !screen.CellAt(2, 0).inverted,
+            "theme: send focus must not produce an inverted bright rectangle");
 }
 
 client::ui::State fixture()
@@ -90,6 +133,7 @@ std::string plain(const ftxui::Screen& screen)
 
 int main(int argc, char** argv)
 {
+    theme_checks();
     auto state = fixture();
     if (argc == 2 && std::string(argv[1]) == "--benchmark") {
         auto sample = state.rooms.at("lobby").messages.front();

@@ -1,5 +1,6 @@
 #include "view.hpp"
 #include "chat/utf8.hpp"
+#include "theme.hpp"
 #include <algorithm>
 #include <ctime>
 #include <ftxui/dom/node.hpp>
@@ -14,10 +15,15 @@ namespace client::ui
 namespace
 {
 using namespace ftxui;
-const auto accent = Color::RGB(108, 190, 181);
-const auto muted = Color::RGB(143, 157, 173);
-const auto ink = Color::RGB(225, 231, 239);
-const auto panel = Color::RGB(25, 33, 45);
+const auto accent = theme::rgb(theme::accent);
+const auto muted = theme::rgb(theme::secondary);
+const auto ink = theme::rgb(theme::text);
+const auto panel = theme::rgb(theme::canvas);
+
+Element rule()
+{
+    return separator() | color(theme::rgb(theme::outline));
+}
 
 std::string safe(std::string_view value)
 {
@@ -75,12 +81,13 @@ std::string delivery(Delivery value)
 Element metadata(const Message& value, const State& state)
 {
     const bool own = value.author == state.user;
-    Elements items{text(own ? "你" : safe(value.author)) | bold |
-                       color(own ? accent : Color::RGB(160, 184, 231)),
+    Elements items{text(own ? "你" : safe(value.author)) | bold | color(own ? accent : ink),
                    text("  " + local_time(value.time_ms, "%H:%M")) | color(muted)};
     if (own)
         items.push_back(text("  · " + delivery(value.delivery)) |
-                        color(value.delivery == Delivery::failed ? Color::RedLight : muted));
+                        color(value.delivery == Delivery::failed      ? theme::rgb(theme::error)
+                              : value.delivery == Delivery::uncertain ? theme::rgb(theme::warning)
+                                                                      : muted));
     return hbox(std::move(items));
 }
 
@@ -99,7 +106,7 @@ Element room_list(const State& state)
             {text(" # " + safe(name)) | flex,
              text(room.unread ? " " + std::to_string(room.unread) + " " : " ") | color(accent)});
         if (name == state.active_room)
-            row = row | bold | bgcolor(Color::RGB(42, 63, 73));
+            row = row | bold | color(accent) | bgcolor(theme::rgb(theme::selection));
         items.push_back(row);
         items.push_back(text(""));
     }
@@ -119,7 +126,8 @@ Element help()
                  text("Ctrl+C       退出"),
                  text(""),
                  paragraph("命令：/join 房间  /rooms  /history  /read  /quit")}) |
-           border | bgcolor(panel) | center;
+           borderStyled(theme::rgb(theme::outline)) | color(ink) |
+           bgcolor(theme::rgb(theme::input)) | center;
 }
 } // namespace
 
@@ -291,9 +299,8 @@ Element timeline(const State& state, int columns, int rows, Visibility* visibili
             Element item;
             std::uint64_t id = value.id;
             if (dated && index == 0) {
-                item = hbox({separator() | flex,
-                             text("  " + date + "  ") | color(muted),
-                             separator() | flex});
+                item =
+                    hbox({rule() | flex, text("  " + date + "  ") | color(muted), rule() | flex});
                 id = 0;
             } else if ((dated && index == 1) || index == height - 1) {
                 item = text("");
@@ -330,11 +337,11 @@ static ftxui::Element make_view(const State& state,
     if (columns < 30 || rows < 9)
         return vbox({text("Socket Chats") | color(accent),
                      text("# " + safe(state.active_room)),
-                     separator(),
+                     rule(),
                      std::move(composer) | flex,
-                     text("Enter 发送 · Ctrl+C 退出") | dim}) |
-               frame;
-    auto header = hbox({text("  SOCKET / CHATS") | bold | color(accent),
+                     text("Enter 发送 · Ctrl+C 退出") | color(muted)}) |
+               color(ink) | bgcolor(panel) | frame;
+    auto header = hbox({text("  SOCKET / CHATS") | bold | color(ink),
                         filler(),
                         text(safe(state.tenant) + " / " + safe(state.user) + "  ") | color(muted)});
     auto found = state.rooms.find(state.active_room);
@@ -343,25 +350,26 @@ static ftxui::Element make_view(const State& state,
         hbox({text("# " + safe(state.active_room)) | bold,
               text(unread ? "  · " + std::to_string(unread) + " 条未读" : "") | color(accent),
               filler(),
-              text(connection(state.connection)) | color(muted)});
-    auto conversation =
-        vbox({title, separator(), timeline(state, columns, rows, visibility)}) | flex;
+              text(connection(state.connection)) |
+                  color(state.connection == "online" ? theme::rgb(theme::success) : muted)});
+    auto conversation = vbox({title, rule(), timeline(state, columns, rows, visibility)}) | flex;
     Element main = conversation;
     if (columns >= 88 && rows >= 16) {
         auto sidebar = vbox({text(" 房间") | bold | color(muted),
                              text(""),
                              rooms_element ? std::move(rooms_element) | flex : room_list(state),
                              text(" Tab 切换") | color(muted)}) |
-                       size(WIDTH, EQUAL, 21);
-        main = hbox({sidebar, separator(), text(" "), conversation});
+                       size(WIDTH, EQUAL, 21) | bgcolor(theme::rgb(theme::sidebar));
+        main = hbox({sidebar, rule(), text(" "), conversation});
     }
-    auto draft = vbox({hbox({text(" 写消息 ") | color(accent), separator() | flex}),
-                       std::move(composer) | size(HEIGHT, LESS_THAN, rows >= 20 ? 4 : 2) | frame});
+    auto draft = vbox({hbox({text(" 写消息 ") | color(muted), rule() | flex}),
+                       std::move(composer) | size(HEIGHT, LESS_THAN, rows >= 20 ? 4 : 2) |
+                           bgcolor(theme::rgb(theme::input)) | frame});
     const auto shortcuts = columns < 70
                                ? " Enter 发送 · Tab 房间 · F1 帮助"
                                : " Enter 发送   Tab 房间   PgUp 历史   Ctrl+R 已读   F1 帮助";
     auto footer = state.notice.empty() ? shortcuts : " " + safe(state.notice);
-    auto result = vbox({header, separator(), main | flex, draft, text(footer) | color(muted)}) |
+    auto result = vbox({header, rule(), main | flex, draft, text(footer) | color(muted)}) |
                   color(ink) | bgcolor(panel);
     if (state.help)
         result = dbox({result, help()});
