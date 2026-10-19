@@ -32,25 +32,43 @@ or OS service manager.
 | Message text | Send to the current room, with a generated idempotency nonce |
 | /rooms | Server-authoritative room, latest ID, unread count |
 | /join ROOM | Create/join tenant-public room; switch only after acknowledgement |
-| /history [AFTER_ID] | Display up to 100 messages after ID (default 0), ascending |
+| /history [AFTER_ID] | Interactive: load earlier history, or one forward page after an explicit ID; plain mode retains the original default 0 / 100-message page |
 | /read | Explicitly mark messages already displayed in the current room read |
 | /help | Explain available commands |
-| /quit, Ctrl-C, Ctrl-D | Flush outstanding commands and exit |
+| /quit, Ctrl-C, Ctrl-D | Exit and restore the terminal; plain mode briefly drains outstanding replies |
 
 Read receipts are never emitted merely because the daemon receives, caches, or
 replays a message. /read uses the largest ID actually displayed for that room.
-Messages display UTC date/time, live/history/cache origin, room, sender, and ID.
-Read receipts display user and cursor; /rooms provides unread counts excluding
-one's own messages. History and cached events can include rooms other than the
-current sending room, and their room labels remain explicit.
+Plain mode displays UTC date/time, live/history/cache origin, room, sender and ID.
+The interactive conversation instead groups compact local time, author and own
+delivery/read state beside the body, hiding raw IDs and background event logs.
+It displays only the active room; cache, history and live versions merge by ID or
+author+nonce. `/rooms` updates the sidebar; unread counts exclude own messages.
 
-Interactive mode uses native terminal input, color, incremental prompt updates,
-UTF-8 input, and whole-codepoint backspace. Terminal mode is restored on normal
-exit and exceptions; POSIX Ctrl-C is handled as input so normal cleanup runs.
-It is a scrollback-oriented TUI, not a full-screen terminal emulator. Arrow-key
-editing/history, grapheme-cluster editing, and multi-line composition are not
-implemented. CJK/emoji width is best effort. Windows uses UTF-16 console input
-converted to UTF-8, and restores previous console modes/code pages.
+Interactive mode uses pinned FTXUI 7.0.3 Input/Menu/DOM and its full-screen event
+loop. The native socket Session owns a separate bounded IO worker and wakes the
+UI with coalesced events, never a per-character socket polling delay. It supports
+Unicode-aware editing, Left/Right/Home/End/Delete, input history, Tab room cycling,
+PgUp/PgDn history, F1 help and Ctrl+R read. Drafts survive room changes and offline
+input. It does not implement multi-line composition. Mode/codepage capture wraps
+FTXUI's entire lifetime; original terminal state is restored on normal exit and
+exceptions. Windows uses batched UTF-16 input, including split surrogate pairs
+and native repeat counts through the narrow exact-source dependency patch.
+
+The conversation retains 500 messages per room and an 8 MiB global text budget;
+the state-owned wrapping cache is independently capped at 128 bodies / 8 MiB,
+with bounded height metadata. Only viewport rows become DOM nodes. Browsing older
+pages evicts the opposite end rather than discarding the page just fetched;
+PgDn at the bottom reloads the latest window. A room's advertised maximum and live
+events never advance its separate fetched-history cursor. Read is deferred during
+history synchronization and is calculated from actual visible layout.
+
+Optimistic sends appear immediately; ACK/history/broadcast reconcile one message.
+Errors known to precede queueing retain code `offline`. A forwarded operation
+whose response is lost uses `delivery_unknown`, displayed as uncertain rather
+than inviting a blind retry. Local daemon loss settles outstanding optimistic
+messages to uncertain and preserves the editable draft. No uncertain send is
+automatically replayed.
 
 The --plain option emits no ANSI and supports pipes. End-of-input flushes
 commands and drains replies for up to two seconds. Input larger than 65536 bytes
@@ -114,8 +132,9 @@ address attempts; OS DNS can take longer but does not block the IPC reactor.
 Offline commands fail explicitly and are **not** queued. Interrupted in-flight
 requests get a delivery-uncertainty error and are not automatically resent.
 Inspect /history before manually retrying a send whose acknowledgement was lost.
-Existing IPC clients survive reconnect; missed history is not automatically
-fetched. Use /history AFTER_ID to synchronize. Authentication failures never
+Existing IPC clients survive reconnect. The daemon does not fetch missed history
+on their behalf; the interactive UI synchronizes its separate fetched cursor.
+Plain clients can use /history AFTER_ID to synchronize. Authentication failures never
 print credentials; replace CHAT_TOKEN and restart the daemon to change them.
 
 ## Verification

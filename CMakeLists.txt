@@ -12,6 +12,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Threads REQUIRED)
 include(CTest)
+include(cmake/dependencies.cmake)
 
 add_library(chat_options INTERFACE)
 if(MSVC)

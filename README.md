@@ -1,8 +1,10 @@
 # Socket Chats Lab
 
 A C++23 native-socket chat application: PostgreSQL server, per-account client
-daemon, and UTF-8 color terminal client. No third-party networking framework,
-JSON package, terminal toolkit, or compression library is used. libpq is the
+daemon, and UTF-8 color terminal client. Networking remains native operating-system
+sockets, with no third-party networking framework. The interactive client uses
+FTXUI 7.0.3, fetched from a SHA256-pinned source archive through CMake FetchContent.
+JSONL and the existing wire compression remain dependency-free. libpq is the
 optional build-time PostgreSQL database client; PostgreSQL is the default runtime
 backend. The explicit memory backend is only for local demos and tests.
 
@@ -144,7 +146,7 @@ account cannot silently reuse its cache. Stop the daemon to replace `CHAT_TOKEN`
 | Reliability | Persist before ack/broadcast; tenant/user/nonce deduplication; PostgreSQL transaction/pool recovery; server restart persistence |
 | Metadata | UTC millisecond timestamps, sender and message ID, monotonic read cursors, unread counts excluding own messages, history pagination |
 | Daemon | Private authenticated loopback IPC, multiple TUI clients, request-ID isolation, account lock, bounded JSONL cache, reconnect/backoff and heartbeats |
-| TUI | Color scrollback, UTF-8 input, codepoint backspace, event-driven prompt updates, explicit read, terminal sanitization and state restoration; plain mode for pipes |
+| TUI | Full-screen FTXUI conversation, room sidebar/unread, native Unicode editor, optimistic send/read states, bounded visible-row layout, cursor/history editing and terminal restoration; compatible plain mode for pipes |
 | Build/ops | Target-based CMake subdirectories, presets, Python build/demo/provision/benchmark tools, CTest and GitHub Actions |
 
 ## Security and scope
@@ -160,20 +162,32 @@ encryption. Horizontal live fanout across multiple server processes is not
 implemented: run one chat server per database deployment. PostgreSQL persists
 data; it is not a distributed event bus.
 
-The TUI is a deliberately small scrollback-oriented interface, not a full-screen
-terminal emulator. It does not implement grapheme-cluster editing, arrow-key line
-editing, or multi-line composition. `/read` is explicit so background receipt
-does not incorrectly mark messages read. Offline sends fail clearly, not queue
-silently; after reconnect use `/history AFTER_ID` to synchronize. An interrupted
-send can have an unknown delivery outcome; inspect history before manual retry.
+The interactive TUI uses FTXUI's Unicode-aware Input and native event loop, with
+Left/Right/Home/End/Delete, Up/Down input history, Tab room switching, PgUp/PgDn
+history navigation, F1 help and Ctrl+R explicit read. Large histories render only
+visible wrapped rows. Per-room drafts survive switching and offline input.
+`--plain` retains the script-friendly line-oriented behavior without ANSI. There
+is no multi-line composition or attachment UI. `/read` stays explicit: background
+receipt never silently reads messages. Reconnect resynchronizes a separate
+contiguous history cursor; an interrupted send is shown as uncertain, not falsely
+reported unsent. Inspect history before manually retrying an uncertain send.
+
+Initial views load a bounded recent global-ID window (up to 200 messages, possibly
+fewer in a sparse room). Older-history browsing slides a 500-message retained
+window; PgDn at its bottom returns to the latest server window. The conversation
+model and wrapping cache each have independent 8 MiB budgets.
 
 ## Testing and measurements
 
 `ctest` runs randomized protocol/cache properties, malformed-input and real socket
 tests, publication-order/disconnected-sender regressions, server/daemon/plain-TUI
-journeys, and daemon reconnection/privacy tests. POSIX builds also run a **real
-pseudo-terminal** journey with Chinese/emoji editing, read receipts, hostile
-terminal controls, idle redraw checks, and terminal-mode restoration.
+journeys, and daemon reconnection/privacy tests. POSIX builds run real PTY journeys
+with screen projection, editing, room/draft isolation, history-window paging,
+read receipts, offline reconnect and terminal restoration. Windows builds run
+real ConPTY input fixtures and the actual interactive client, checking Unicode,
+cursor editing and exact independently observed message bodies. The 108-character
+burst regression has a generous 1000 ms gate, catching the former ~3.4-second
+one-character-per-network-poll behavior.
 
 For a **fresh, dedicated test database**, set `CHAT_DB_DSN` and run:
 
@@ -208,5 +222,7 @@ for the actual run, tested commit, and the corrected Windows SID-alias assertion
 - [Engineering sources and trade-offs](docs/engineering-notes.md)
 - [Review and addressed findings](docs/review.md)
 - [Interactive terminal validation](docs/terminal-validation.md)
+- [TUI redesign, dependency and layout decisions](docs/tui-redesign.md)
+- [Native Windows interactive latency measurements](docs/interactive-latency.md)
 
 License: [GPL-3.0](LICENSE), retained from the initial repository.

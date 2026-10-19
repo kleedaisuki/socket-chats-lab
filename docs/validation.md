@@ -161,3 +161,29 @@ for the binary trustee layout and the `LA` representation.
 Interactive Windows glyph appearance was not screenshot-verified. Unicode
 grapheme shaping remains explicitly out of scope; hosted macOS PTY execution
 does not imply a complete terminal-emulator or grapheme-editing implementation.
+
+
+## FTXUI redesign: additional local validation (2026-10-19)
+
+The initial-build and hosted results above describe the original client. After
+replacing its interactive terminal path with pinned FTXUI 7.0.3 and independent
+native socket IO, the following full local suites passed:
+
+| Configuration | Executed result | Elapsed time |
+| --- | --- | ---: |
+| Windows MSVC Debug | 13/13 | 18.24 s |
+| Windows MinGW Debug | 13/13 | 11.80 s |
+| WSL2 Linux Debug, PostgreSQL-enabled build | 13/13 | 38.11 s |
+
+Windows includes native ConPTY server-daemon-client input/edit/send journeys and
+native console surrogate/repeat/mode restoration fixtures. POSIX includes real
+PTY editing, resize, offline-draft and reconnect journeys plus scripted history
+and delivery-state regressions. Shared suites cover bounded asynchronous socket
+queues and property-style conversation rendering tests. The expanded POSIX state
+journey checks a full 500-message window moving backward and returning to latest,
+and indeterminate delivery without suggesting a duplicate-producing resend.
+
+See `docs/interactive-latency.md` for same-host original/new native input timing
+and `docs/terminal-validation.md` for precise behavioral assertions and limits.
+No visible user applications were restarted for these isolated fixtures. The
+hybrid application's PostgreSQL cluster and existing account data were retained.

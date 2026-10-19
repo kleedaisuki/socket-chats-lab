@@ -165,7 +165,7 @@ class Daemon
             queue(item.peer,
                   {Type::error,
                    item.request,
-                   {"offline",
+                   {"delivery_unknown",
                     "Connection lost; delivery may be uncertain. Check history before retrying."}});
         }
         retry_ = Clock::now() + std::chrono::seconds(backoff_);
