@@ -1,0 +1,46 @@
+% !TeX program = xelatex
+\documentclass[sigconf,nonacm]{acmart}
+\usepackage[UTF8,scheme=plain,fontset=fandol]{ctex}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds}
+\usepackage{listings}
+\usepackage{xurl}
+\usepackage{enumitem}
+\setCJKmainfont{FandolSong-Regular}[BoldFont=FandolSong-Bold,ItalicFont=FandolKai-Regular,SmallCapsFont=FandolSong-Regular]
+\setCJKsansfont{FandolHei-Regular}[BoldFont=FandolHei-Bold]
+\setCJKmonofont{FandolFang-Regular}
+\setcopyright{none}
+\settopmatter{printacmref=false,printccs=false,printfolios=true}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\acmConference{}{}{}
+\acmYear{2026}
+\hypersetup{unicode=true,pdftitle={从提交到可见：原生套接字聊天系统的设计与演化}}
+\lstset{basicstyle=\ttfamily\scriptsize,breaklines=true,columns=fullflexible,keepspaces=true,frame=single,rulecolor=\color{black!15},aboveskip=6pt,belowskip=6pt}
+\DeclareRobustCommand{\code}[1]{\nolinkurl{#1}}
+\newcommand{\sys}{Socket Chats Lab}
+\newcommand{\invariant}[1]{\textbf{#1}}
+\setlength{\emergencystretch}{2em}
+\title{从提交到可见：原生套接字聊天系统的设计与演化}
+\subtitle{围绕顺序、所有权与真实交互的系统实验报告}
+\author{Klee}
+\affiliation{\institution{Socket Chats Lab}\country{}}
+\renewcommand{\shortauthors}{Klee}
+\begin{document}
+\begin{abstract}
+聊天系统的困难并非把文本送进套接字，而是让持久化、事件发布、本地缓存与用户操作对同一条消息给出一致解释。本文以 C++23 原生套接字实现的 \sys{} 为对象，讨论三进程架构如何组织这些边界，以及开发过程如何发现并修正边界间的错位。系统采用单反应器（reactor）、有界共享工作池、PostgreSQL 权威存储与按账户隔离的本地守护进程；通过覆盖执行至完成入队的房间门控（room gate）协调提交与发布，并将历史同步进度、房间元数据和前台可见位置分开建模。实验表明，消除错误等待与重复工作比普遍调整 TCP 参数更有效：本地完成唤醒将一次探测的中位响应从 15.532 ms 降至 0.126 ms，共享编码将匹配扇出工作负载的三次试验吞吐中位数提升至原来的 4.07 倍，批处理终端输入将 108 字符突发的完成时间从约 3.41 s 降至 26.82 ms。本文进一步分析契约驱动的并行开发、独立审阅与真实终端旅程如何共同推动模型简化。抽象状态机的 Lean 证明、SymPy 数值核算与复现细节置于附录。
+\end{abstract}
+\keywords{原生套接字, 事件驱动, 事务发布顺序, 终端交互, 工程协作}
+\maketitle
+
+\input{sections/intro}
+\input{sections/design}
+\input{sections/process}
+\input{sections/evaluation}
+\input{sections/discussion}
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+\clearpage
+\appendix
+\input{sections/reproduction}
+\input{sections/formal}
+\end{document}

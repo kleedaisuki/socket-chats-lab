@@ -1,0 +1,39 @@
+\section{问题：消息经过了谁的边界？}
+\label{sec:intro}
+从输入框到数据库，一条聊天消息会经历多个互不等价的时刻：用户提交、服务端接受、数据库提交、事件进入发布队列、对端接收，以及文本进入前台视口。把其中任何两个时刻合并，都会得到表面顺畅却语义含混的实现。例如，数据库已有记录不代表在线接收者已经看见；接收到最大消息 ID 也不代表此前的历史已同步；本地回显成功更不等于服务器已经确认。
+
+本实验的目标是完成一个可以持续使用的终端聊天系统，而非孤立展示网络 API。系统包含服务端 \code{chat-server}、按账户运行的 \code{chat-daemon} 和交互前端 \code{chat}，支持租户内公共房间、持久消息、历史分页、未读统计与显式已读。约束为 C++23、操作系统原生套接字和不引入第三方网络框架；PostgreSQL 通过 libpq 接入，终端组件采用固定版本的 FTXUI。默认部署是本机明文回环连接，远程访问使用 SSH 隧道。这个范围使我们可以集中讨论单服务进程内的持久化与交互一致性，而不将多副本共识带来的问题混入同一模型。
+
+\paragraph{核心判断。}
+可靠性来自\emph{让语义边界与状态所有权对齐}，而非不断为异常路径添加补丁。本文围绕三个相互关联的问题展开：
+\begin{enumerate}[leftmargin=*,nosep]
+\item 反应器、工作线程与数据库应当怎样分工，才能同时保持会话顺序、房间顺序和有限资源占用？
+\item 断线、历史分页和终端渲染应当怎样共享消息身份，又不错误共享进度？
+\item 当测试通过而用户体验仍然失败时，开发组织与验证方法应当如何改变？
+\end{enumerate}
+
+这三个问题最终落在同一原则上：\emph{共享稳定事实，分离生命周期与进度}。稳定消息身份可以跨缓存、历史和直播复用；套接字存活状态不能决定已提交事件是否发布；房间最大 ID 不能替代历史抓取游标；本地守护进程持续在线也不能代替用户的已读意图。
+
+\paragraph{与既有工作的关系。}
+分阶段事件驱动架构（Staged Event-Driven Architecture, SEDA）用显式队列表达负载与调度边界\cite{seda}。本系统采用其有界排队思路，但保留一个反应器与一个共享工作池，不为每个业务阶段建立独立线程池。基于性质的测试（property-based testing）将不变量转成生成式输入上的检查\cite{quickcheck}；我们将其用于字节流、缓存和游标，再以进程及真实终端测试补上环境语义。IronFleet 展示了实现级机器验证的深度\cite{ironfleet}；本文则对关键顺序抽象作局部机器证明，并用可观察旅程检验实现与抽象的连接。近期 Legolas 通过抽象状态引导局部故障注入\cite{legolas}，与本实验在提交后断线、未确认发送和历史页取消等边界布置判别性测试的方向相呼应。
+
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[font=\small,box/.style={draw=black!55,rounded corners=2pt,align=center,minimum height=11mm,fill=black!3},arr/.style={-{Stealth[length=2mm]},thick},node distance=8mm]
+\node[box] (ui) {终端前端 \code{chat}\\编辑、视口、显式已读};
+\node[box,right=12mm of ui] (daemon) {账户守护进程\\IPC 路由、缓存、重连};
+\node[box,right=12mm of daemon] (reactor) {服务端反应器\\套接字唯一所有者};
+\node[box,right=12mm of reactor] (workers) {有界共享工作池\\会话 FIFO、房间门控};
+\node[box,below=8mm of workers] (pg) {PostgreSQL\\租户、消息、已读游标};
+\node[box,below=8mm of daemon] (cache) {JSONL 日志\\有限缓存，不替代历史};
+\draw[arr] (ui) -- node[above,font=\scriptsize]{认证 IPC} (daemon);
+\draw[arr] (daemon) -- node[above,font=\scriptsize]{SCL/1} (reactor);
+\draw[arr] (reactor) -- node[above,font=\scriptsize]{命令} (workers);
+\draw[arr] (workers) -- (pg);
+\draw[arr] (daemon) -- (cache);
+\draw[arr] (workers.south west) to[bend left=20] node[below,font=\scriptsize]{完成队列 + 原生唤醒} (reactor.south);
+\end{tikzpicture}
+\caption{状态所有权而非功能列表决定进程边界。数据库提交之后，工作线程只发布完成对象；所有客户端套接字写入仍由反应器完成。守护进程独立于某一个终端窗口存活。}
+\Description{终端通过本机认证 IPC 连接账户守护进程；守护进程缓存 JSONL 并通过 SCL/1 连接服务端反应器。反应器投递命令至共享工作池，工作池访问 PostgreSQL，再以完成队列和原生唤醒返回反应器。}
+\label{fig:architecture}
+\end{figure*}

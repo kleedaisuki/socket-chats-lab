@@ -1,0 +1,79 @@
+\section{复现环境、证据与工程细节}
+\label{app:repro}
+本报告对应仓库 \code{socket-chats-lab}，撰写基线为 \code{034ace8}。正文历史实验来自项目保留的执行记录，不将本文排版时刻视作全部性能实验的重跑时刻。设计核对使用当前代码；原始性能数据、前后源文件与二进制保存在本地 \code{.cache}。仓库内 \code{report/evidence.md} 记录数值来源与代码映射，\code{docs/} 保存可长期复用的实验说明。
+
+\subsection{构建与完整用户旅程}
+应用要求 CMake 3.25+、C++23 编译器和 Python 3.10+。默认构建启用 libpq；便携构建显式关闭数据库依赖，运行内存后端。FTXUI 7.0.3 由 FetchContent 从固定源码归档取得，SHA-256 为：
+\begin{lstlisting}
+e7c62ffe19009759821b4f0f8df7f2a6fb83784c3a9f1477d81f56d3ee723c88
+\end{lstlisting}
+Windows 输入补丁由 \code{scripts/patch_ftxui.py} 施加，按固定源上下文校验；应用网络仍完全使用原生套接字。构建产物位于仓库 \code{.cache/build}，不提交依赖源码、数据库凭据或守护状态。
+\begin{lstlisting}[language={}]
+python scripts/dev.py build --portable
+python scripts/dev.py test --portable
+python scripts/dev.py demo --portable
+\end{lstlisting}
+双用户旅程为：启动两个同租户账户的守护进程与终端；发送中文和 emoji；切换房间、检查未读和分页；显式标记当前视口已读；停止上游后继续编辑；恢复上游并确认草稿未自动发送；退出并检查终端模式恢复。普通 \code{--plain} 路径用于脚本兼容性，不能替代该交互旅程。
+
+PostgreSQL 复现使用新的专用角色与数据库，按照 \code{README.md} 的部署步骤配置 \code{CHAT_DB_DSN} 与预置令牌。\code{tests/journey.py --help} 和 \code{tests/postgres_recovery.py --help} 给出所需服务端、守护进程及客户端参数。前者以 \code{--postgres} 验证服务重启前后消息字段与房间元数据；后者会终止目标数据库用户的池连接，必须使用专用测试数据库。凭据只经环境或受保护配置传入，不写入论文或版本库。
+
+\subsection{实验配置与原始数据}
+\paragraph{完成唤醒。}
+Windows 11、GCC 16.2 Debug、内存后端、两工作线程、回环 TCP；预热十次，顺序测量一百次。旧路径为 10 ms 完成轮询，新路径为原生套接字唤醒。\code{docs/storage.md} 记录首次新路径中位值 0.12635 ms、p95 0.2218 ms，后续核算版本为 0.12275/0.2025 ms。正文统一使用首次配对值。
+\begin{lstlisting}
+python tests/server_latency.py --server SERVER --iterations 100
+\end{lstlisting}
+
+\paragraph{广播共享编码。}
+Windows 11 build 26200，MinGW GCC 16 C++23 Debug，四工作线程，内存后端，16 个 Python 线程客户端使用同一租户/用户，每客户端一条在途发送、各发送 100 条消息，同时接收租户广播。正文为 256 UTF-8 字节，带中文/emoji 前缀和重复字符，具有较高可压缩性。接收端 Python 解压和运行时竞争包含在测量中；ACK/s 的分母包括客户端线程启动及认证时间，不是仅截取稳定期的服务端吞吐。三次先前/共享交替运行，唯一 A/B 源差异为广播编码复用：
+\begin{lstlisting}
+python scripts/benchmark.py --server SERVER --clients 16 --messages 100 --bytes 256 --threads 4 --output .cache/server/TRIAL.json
+\end{lstlisting}
+基线源文件与可执行程序为 \code{.cache/server/broadcast-baseline-main.cpp} 和 \code{broadcast-baseline.exe}；六份记录为该目录下 \code{broadcast-before-1.json} 至 \code{broadcast-after-3.json}。表~\ref{tab:fanout} 保留每次测量，不把三次试验中位数当作单次原始样本的分位数。
+
+\paragraph{交互输入。}
+Windows 11 build 26200 x64，Intel family 6 model 154、20 逻辑 CPU，Python 3.14.6，两版客户端均为 MSVC Debug；服务端和守护进程保持相同。ConPTY 为 140 列、36 行，各三轮 ASCII 单键、108 字符 ASCII 突发、76 码点中文/emoji 突发。测量从输入管道写入前计时，到持续读取线程重建的当前屏幕出现目标草稿；它不包含实体键盘、显示器或 IME 候选窗时延。
+\begin{lstlisting}
+python scripts/terminal_probe.py --server SERVER --daemon DAEMON --client CLIENT --output .cache/report/conpty --editing
+\end{lstlisting}
+历史基线位于 \code{.cache/tui-baseline/conpty-authoritative/result.json}，新客户端为 \code{.cache/tui-current/final-color/result.json}；精确程序哈希和宿主协商方法见 \code{docs/interactive-latency.md}。基线额外逐键 Unicode 阶段曾停顿，故共同九条消息与新版扩展十三条消息分开报告。所有子进程由隔离夹具清理。
+
+\paragraph{TCP 参数反向对照。}
+原始记录为 \code{.cache/benchmark-nodelay-1.json} 至 \code{benchmark-reverted-3.json}，以及更早的 \code{benchmark-nagle-*.json}。前两组当前源码比较用于判断选项收益；更早程序只用于展示控制组混杂，不用于归因。完整环境与决定见 \code{docs/performance-network.md}。
+
+\subsection{性质与故障测试的可追踪入口}
+\begin{table}[h]
+\caption{核心不变量与实现级检查。种子与次数对应当前测试源码。}
+\centering\small
+\begin{tabular}{p{.32\columnwidth}p{.59\columnwidth}}
+\toprule
+性质/旅程 & 源码与检查规模\\
+\midrule
+编码、分片与合并 & \code{tests/core_tests.cpp}；种子 42，600 组往返/分片与 1000 组变异\\
+存储及游标 & \code{tests/server_storage.cpp}；种子 74821，400 次游标转移，并发重复发送与冲突\\
+请求者断开后发布 & \code{tests/server_publication.py}；20 次 FIN、32 条合并命令、240 条同房间并发事件\\
+缓存与重连 & \code{tests/client_tests.cpp}、\code{tests/client_journey.py}；JSONL、账户目录、离线/重连及权限\\
+真实终端与历史窗口 & \code{tests/terminal_journey.py}、\code{tests/tui_state_journey.py}、\code{tests/tui_window_journey.py}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+已执行的 FTXUI 跨平台矩阵对应提交 \code{eb24fa738f5eccf7785db6fb940a09f004171609}，公开执行记录为\href{https://github.com/kleedaisuki/socket-chats-lab/actions/runs/39286126175}{GitHub Actions 39286126175}；Windows/MSVC、Ubuntu/GCC、macOS ARM64/AppleClang、PostgreSQL/强制 poll、ASan/UBSan 均完成各自 13 项测试。后续配色与最终代码的执行记录另见 \code{docs/validation.md} 和 \code{docs/tui-color-system.md}。历史性能试验不与这些 CI 结果混为同一环境。
+
+POSIX 强制 poll 与 sanitizer 可按项目预设分别执行：
+\begin{lstlisting}
+cmake --preset sanitize
+cmake --build --preset sanitize
+ctest --preset sanitize
+cmake -S . -B .cache/build/poll -DCHAT_WITH_POSTGRES=OFF -DCHAT_FORCE_POLL=ON
+cmake --build .cache/build/poll --parallel
+ctest --test-dir .cache/build/poll --output-on-failure
+\end{lstlisting}
+
+\subsection{协议与资源界限}
+SCL/1 使用 20 字节定长头，包含魔数、版本、类型、标志、请求 ID、线上长度和解压长度；字段为数量加长度前缀的 UTF-8 字符串。原始及线上负载均不超过 1 MiB，字段数不超过 128。身份来自认证会话，普通消息不接收可信租户覆盖。认证帧不压缩，每帧独立字典，解压同时限制声明长度与实际输出。
+
+当前服务端允许最多 1024 连接，等待工作队列为 1024 任务，每会话最多 64 待处理命令和约 2 MiB 输入估算；全局输入、完成队列和输出各有 64 MiB 核算限额，单客户端输出为 4 MiB。历史每页最多 200 条且按字节提前结束。该核算不等于整个进程 RSS：对象开销、分离处理中的完成批次、执行中历史页及内存后端保留消息另有占用。详细常量与生命周期见 \code{docs/storage.md}。
+
+\paragraph{数据与代码的交付边界。}
+本文源码及证明保存在 \code{report/}；构建 PDF、日志和页面预览保存在 \code{.cache/report/}。对外复现实验可以重新运行上述驱动；历史程序和原始 \code{.cache} 文件是本地证据，不会随 Git 克隆自动取得。表中完整数值、配置与匹配条件已在本文及长期文档保留。

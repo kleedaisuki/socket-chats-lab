@@ -1,0 +1,67 @@
+\section{顺序模型与机器检验}
+\label{app:formal}
+本附录把正文的房间顺序论证写成可检查的抽象状态机。Lean 4.33.1 使用标准库检验 \code{report/formal/Ordering.lean}；所有命题均有证明项，没有 \code{sorry} 或自设公理。模型解释单服务进程正常运行期间的新鲜成功发送，重试与失败不追加日志。它检验顺序机制，不替代 C++ 到模型的实现精化证明。
+
+\subsection{从提交到反应器处理的前缀关系}
+固定一个租户房间，将执行轨迹投影到新鲜成功发送，令状态
+\[
+ S=(C,A,D,P)
+\]
+分别表示已提交 ID 日志、已进入完成队列的日志、反应器已处理的日志，以及提交后尚未进入完成队列的待入队事件。各日志元素为自然数，允许 ID 有洞；\(X\preceq Y\) 表示列表前缀，\(X\cdot Y\) 表示拼接。初态各列表为空。允许三种转移：
+\begin{description}[leftmargin=1.2em,style=nextline]
+\item[提交 \(\operatorname{commit}(i)\)]
+仅当 \(P=\epsilon\) 且对所有 \(j\in C\) 有 \(j<i\) 时，置 \(C'=C\cdot[i]\)、\(P'=[i]\)。
+\item[入队 \(\operatorname{admit}(i)\)]
+仅当 \(P=[i]\) 时，置 \(A'=A\cdot[i]\)、\(P'=\epsilon\)。
+\item[处理 \(\operatorname{drain}(i)\)]
+仅当某个列表 \(T\) 满足 \(A=D\cdot[i]\cdot T\) 时，置 \(D'=D\cdot[i]\)。
+\end{description}
+上述转移中未指明的分量保持不变。提交前的空待入队条件抽象了房间门控跨越提交至完成入队的连续性；严格增大条件来自房间锁下的存储 ID 分配，假设没有外部序列回退或迁移干预。
+
+\begin{proposition}[可达状态不变量]
+从初态经任意有限合法轨迹可达的状态均满足
+\begin{align}
+C &= A\cdot P, & D&\preceq A,\label{eq:prefix}\\
+|P|&\leq 1, & C&\text{ 严格递增}.\label{eq:increasing}
+\end{align}
+因此 \(D\preceq C\)，\(D\) 严格递增，且
+\( |C|\leq |A|+1 \)。
+\end{proposition}
+\begin{proof}
+初态直接满足。提交时 \(P=\epsilon\)，由旧等式得 \(C=A\)；两侧各追加同一新 ID，前缀和间隙约束保持，新鲜性保证严格递增。入队将唯一待入队 ID 从 \(P\) 移到 \(A\) 末尾，保持拼接等式且只延长 \(A\)。处理按条件只扩展 \(D\) 的下一个元素，因而保持其为 \(A\) 前缀。对轨迹长度归纳即得不变量；再用前缀传递、递增列表的前缀仍递增以及拼接长度性质，得到三个推论。对应 Lean 命题为 \code{reachable_invariant}、\code{drained_prefix_committed}、\code{drained_ids_increase} 和 \code{admission_gap_at_most_one}。
+\end{proof}
+
+\paragraph{为什么数据库锁不够。}
+若仅在数据库事务内加锁，允许
+\[
+\operatorname{commit}(1),\ \operatorname{commit}(2),\
+\operatorname{admit}(2),\ \operatorname{admit}(1).
+\]
+此时提交日志为 \([1,2]\)，入队为 \([2,1]\)，后者不是前者前缀。Lean 的 \code{reversed_admission_not_prefix} 对这一具体反例作判定证明。它不证明任意无门控实现必然失败，而是说明仅有事务锁不能排除该轨迹。
+
+\paragraph{模型到实现。}
+\code{src/server/main.cpp} 的 \code{publication_lock} 为房间选取锁带；\code{schedule} 的工作任务在 \code{execute} 前获取门控，直至 \code{completed_.push_back} 后才释放。PostgreSQL 的发送路径先锁房间、再分配并插入 ID，提交后返回；反应器按完成项 FIFO 处理。完整映射见 \code{report/formal/README.md}。这里 \(D\) 是反应器处理完成项，不是远端收包或用户显示；模型也不涵盖所有命令的线性一致性、进程崩溃后的发布或活性。
+
+\subsection{已读游标的代数性质}
+设旧游标为 \(r\)，请求为 \(x\)，房间最大 ID 为 \(M\)。存储先检查 \(x\leq M\)，再更新
+\[
+\operatorname{advance}(r,x)=\max(r,x).
+\]
+在 \(r\leq M\)、\(x\leq M\) 前提下，有
+\begin{align*}
+r&\leq\operatorname{advance}(r,x)\leq M,\\
+\operatorname{advance}(\operatorname{advance}(r,x),x)
+ &=\operatorname{advance}(r,x),\\
+\operatorname{advance}(\operatorname{advance}(r,x),y)
+ &=\operatorname{advance}(\operatorname{advance}(r,y),x).
+\end{align*}
+Lean 的 \code{cursor_monotone}、\code{cursor_bounded}、\code{cursor_retry_idempotent} 和 \code{cursor_updates_commute} 分别检验单调性、有界性、重复幂等性和两次更新的交换性。前台布局决定允许提交哪个 \(x\)，代数性质仅保证存储更新行为；它不声称用户已看过全部较小 ID 的历史。ID 差也不代表消息数量。
+
+\subsection{检验命令与数值核算}
+在仓库根目录执行：
+\begin{lstlisting}
+elan run leanprover/lean4:v4.33.1 lean report/formal/Ordering.lean
+python report/check_metrics.py
+python report/build.py
+\end{lstlisting}
+\code{check_metrics.py} 使用 SymPy 1.14.0 的有理数进行精确核算，不以浮点四舍五入后的比值再次推算百分比。以表~\ref{tab:fanout} 的三次试验中位数计算，吞吐比为 \(2652.47/651.64\)，显示为 4.07 倍；p50 降幅为 \(1-5.568/24.466\)，显示为 77.2\%。终端突发中位数之比分别显示为 127.2 与 85.9 倍。这些是测量值的算术摘要，不是泛化性能定律。证明与算术的机器可执行文件分开维护，以免把实测估计误当作形式定理。

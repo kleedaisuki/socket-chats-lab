@@ -1,0 +1,17 @@
+# LaTeX intermediates. The checked-in deliverable is main.pdf.
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.xdv
+_minted-*/
+
+# Local previews and Python caches.
+page-*.png
+__pycache__/
+*.pyc
