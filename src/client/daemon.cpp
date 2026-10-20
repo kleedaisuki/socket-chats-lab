@@ -12,12 +12,12 @@
 #include <unistd.h>
 #endif
 
-namespace
-{
+namespace {
 using namespace client;
 using Clock = std::chrono::steady_clock;
-void replace_file(const std::filesystem::path& from, const std::filesystem::path& to)
-{
+
+void
+replace_file(const std::filesystem::path& from, const std::filesystem::path& to) {
 #ifdef _WIN32
     if (!MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
         throw std::runtime_error("Cannot publish local state file");
@@ -25,16 +25,15 @@ void replace_file(const std::filesystem::path& from, const std::filesystem::path
     std::filesystem::rename(from, to);
 #endif
 }
-class StateLock
-{
+
+class StateLock {
 #ifdef _WIN32
     HANDLE handle_ = INVALID_HANDLE_VALUE;
 #else
     int handle_ = -1;
 #endif
-  public:
-    explicit StateLock(const std::filesystem::path& dir)
-    {
+public:
+    explicit StateLock(const std::filesystem::path& dir) {
         std::filesystem::create_directories(dir);
 #ifdef _WIN32
         StatePermissions permissions;
@@ -43,13 +42,15 @@ class StateLock
         auto attributes = GetFileAttributesW(lock_path.c_str());
         if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
             throw std::runtime_error("Refusing a reparse point in private Windows state");
-        handle_ = CreateFileW((dir / "lock").c_str(),
-                              GENERIC_READ | GENERIC_WRITE | WRITE_DAC,
-                              0,
-                              nullptr,
-                              OPEN_ALWAYS,
-                              FILE_ATTRIBUTE_NORMAL,
-                              nullptr);
+        handle_ = CreateFileW(
+            (dir / "lock").c_str(),
+            GENERIC_READ | GENERIC_WRITE | WRITE_DAC,
+            0,
+            nullptr,
+            OPEN_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr
+        );
         if (handle_ == INVALID_HANDLE_VALUE)
             throw std::runtime_error("State directory already in use or not writable");
         try {
@@ -79,8 +80,8 @@ class StateLock
         }
 #endif
     }
-    ~StateLock()
-    {
+
+    ~StateLock() {
 #ifdef _WIN32
         if (handle_ != INVALID_HANDLE_VALUE)
             CloseHandle(handle_);
@@ -90,12 +91,13 @@ class StateLock
 #endif
     }
 };
+
 struct Pending {
     Socket peer;
     uint32_t request;
 };
-class Daemon
-{
+
+class Daemon {
     Network network_;
     std::filesystem::path dir_;
     StateLock lock_;
@@ -117,8 +119,8 @@ class Daemon
     Clock::time_point last_remote_ = Clock::now(), last_ping_ = Clock::now();
     uint32_t heartbeat_ = 0;
 
-    void queue(Socket socket, const Frame& frame)
-    {
+    void
+    queue(Socket socket, const Frame& frame) {
         auto found = peers_.find(socket);
         if (found == peers_.end())
             return;
@@ -129,8 +131,9 @@ class Daemon
             drop(socket);
         }
     }
-    void broadcast(const Frame& frame)
-    {
+
+    void
+    broadcast(const Frame& frame) {
         std::vector<Socket> sockets;
         for (auto& [socket, peer] : peers_)
             if (peer.authenticated)
@@ -138,19 +141,22 @@ class Daemon
         for (auto socket : sockets)
             queue(socket, frame);
     }
-    void status(std::string state, std::string detail)
-    {
+
+    void
+    status(std::string state, std::string detail) {
         broadcast({Type::status, 0, {std::move(state), std::move(detail)}});
     }
-    void drop(Socket socket)
-    {
+
+    void
+    drop(Socket socket) {
         poller_.remove(socket);
         close_socket(socket);
         peers_.erase(socket);
         std::erase_if(pending_, [socket](auto& pair) { return pair.second.peer == socket; });
     }
-    void disconnected()
-    {
+
+    void
+    disconnected() {
         if (upstream_) {
             poller_.remove(upstream_->socket);
             close_socket(upstream_->socket);
@@ -162,18 +168,21 @@ class Daemon
         pending_.clear();
         for (auto& [id, item] : pending) {
             (void)id;
-            queue(item.peer,
-                  {Type::error,
-                   item.request,
-                   {"delivery_unknown",
-                    "Connection lost; delivery may be uncertain. Check history before retrying."}});
+            queue(
+                item.peer,
+                {Type::error,
+                 item.request,
+                 {"delivery_unknown",
+                  "Connection lost; delivery may be uncertain. Check history before retrying."}}
+            );
         }
         retry_ = Clock::now() + std::chrono::seconds(backoff_);
         backoff_ = std::min(backoff_ * 2, 30);
         status("offline", "Reconnecting; cached messages are not live.");
     }
-    void connect()
-    {
+
+    void
+    connect() {
         // Name resolution and the bounded TCP connect must not freeze local cached browsing.
         if (!connecting_.valid()) {
             connecting_ = std::async(std::launch::async, [host = host_, port = port_] {
@@ -194,15 +203,17 @@ class Daemon
             disconnected();
         }
     }
-    void remember(Frame frame)
-    {
+
+    void
+    remember(Frame frame) {
         if (frame.type != Type::message && frame.type != Type::receipt)
             return;
         frame.request_id = 0;
         if (frame.type == Type::message && !frame.fields.empty()) {
             auto duplicate = std::find_if(cache_.begin(), cache_.end(), [&](auto& old) {
-                return old.type == Type::message && !old.fields.empty() &&
-                       old.fields[0] == frame.fields[0];
+                return old.type == Type::message
+                       && !old.fields.empty()
+                       && old.fields[0] == frame.fields[0];
             });
             if (duplicate != cache_.end())
                 return;
@@ -237,8 +248,9 @@ class Daemon
         if (compact)
             replace_file(temp, dir_ / "events.jsonl");
     }
-    void remote(Frame frame)
-    {
+
+    void
+    remote(Frame frame) {
         last_remote_ = Clock::now();
         if (!online_) {
             if (frame.type == Type::welcome) {
@@ -247,8 +259,10 @@ class Daemon
                 last_ping_ = Clock::now();
                 status("online", "Connected; use /history to synchronize missed messages.");
             } else if (frame.type == Type::error) {
-                status("auth-error",
-                       "Server rejected authentication; check CHAT_TOKEN and restart daemon.");
+                status(
+                    "auth-error",
+                    "Server rejected authentication; check CHAT_TOKEN and restart daemon."
+                );
                 disconnected();
             }
             return;
@@ -272,28 +286,33 @@ class Daemon
         frame.request_id = item.request;
         queue(item.peer, frame);
     }
-    void local(Socket socket, Frame frame)
-    {
+
+    void
+    local(Socket socket, Frame frame) {
         auto found = peers_.find(socket);
         if (found == peers_.end())
             return;
         if (found->second.closing)
             return;
         if (!found->second.authenticated) {
-            if (frame.type != Type::hello || frame.request_id == 0 ||
-                frame.fields != std::vector<std::string>{tenant_, user_, ipc_token_}) {
+            if (frame.type != Type::hello
+                || frame.request_id == 0
+                || frame.fields != std::vector<std::string>{tenant_, user_, ipc_token_}) {
                 found->second.closing = true;
                 queue(
                     socket,
-                    {Type::error, frame.request_id, {"auth", "Invalid local daemon credentials"}});
+                    {Type::error, frame.request_id, {"auth", "Invalid local daemon credentials"}}
+                );
                 return;
             }
             found->second.authenticated = true;
             queue(socket, {Type::welcome, frame.request_id, {tenant_, user_}});
-            queue(socket,
-                  {Type::status,
-                   0,
-                   {"cache", "Cached local history follows; not a live synchronization."}});
+            queue(
+                socket,
+                {Type::status,
+                 0,
+                 {"cache", "Cached local history follows; not a live synchronization."}}
+            );
             // A replay is deliberately bounded so a new peer cannot exhaust its output queue.
             size_t bytes = 0;
             std::vector<Frame> replay;
@@ -306,33 +325,43 @@ class Daemon
             }
             for (auto it = replay.rbegin(); it != replay.rend(); ++it)
                 queue(socket, *it);
-            queue(socket,
-                  {Type::status,
-                   0,
-                   {online_ ? "online" : "offline",
-                    online_ ? "Connected." : "Reconnecting; cached view only."}});
+            queue(
+                socket,
+                {Type::status,
+                 0,
+                 {online_ ? "online" : "offline",
+                  online_ ? "Connected." : "Reconnecting; cached view only."}}
+            );
             return;
         }
         if (frame.request_id == 0 || frame.type == Type::hello) {
             drop(socket);
             return;
         }
-        if (frame.type != Type::send && frame.type != Type::history && frame.type != Type::read &&
-            frame.type != Type::list && frame.type != Type::join && frame.type != Type::ping) {
-            queue(socket,
-                  {Type::error, frame.request_id, {"invalid", "Unsupported client operation"}});
+        if (frame.type != Type::send
+            && frame.type != Type::history
+            && frame.type != Type::read
+            && frame.type != Type::list
+            && frame.type != Type::join
+            && frame.type != Type::ping) {
+            queue(
+                socket,
+                {Type::error, frame.request_id, {"invalid", "Unsupported client operation"}}
+            );
             return;
         }
         if (!online_) {
-            queue(socket,
-                  {Type::error,
-                   frame.request_id,
-                   {"offline", "Server offline; command not queued."}});
+            queue(
+                socket,
+                {Type::error, frame.request_id, {"offline", "Server offline; command not queued."}}
+            );
             return;
         }
         if (pending_.size() >= 4096) {
-            queue(socket,
-                  {Type::error, frame.request_id, {"overload", "Too many pending requests"}});
+            queue(
+                socket,
+                {Type::error, frame.request_id, {"overload", "Too many pending requests"}}
+            );
             return;
         }
         while (next_ == 0 || next_ == 1 || next_ == heartbeat_ || pending_.contains(next_))
@@ -347,8 +376,9 @@ class Daemon
             disconnected();
         }
     }
-    void accept_peer()
-    {
+
+    void
+    accept_peer() {
         sockaddr_storage address{};
 #ifdef _WIN32
         int size = sizeof(address);
@@ -372,14 +402,20 @@ class Daemon
             close_socket(socket);
         }
     }
-    void publish()
-    {
+
+    void
+    publish() {
         auto temp = dir_ / "endpoint.tmp";
         std::ofstream out(temp, std::ios::trunc | std::ios::binary);
-        out << local_port(listener_) << "\n"
-            << ipc_token_ << "\n"
-            << tenant_ << "\n"
-            << user_ << "\n";
+        out
+            << local_port(listener_)
+            << "\n"
+            << ipc_token_
+            << "\n"
+            << tenant_
+            << "\n"
+            << user_
+            << "\n";
         out.close();
         if (!out)
             throw std::runtime_error("Cannot write daemon endpoint");
@@ -390,13 +426,14 @@ class Daemon
         replace_file(temp, dir_ / "endpoint");
     }
 
-  public:
+public:
     Daemon(int argc, char** argv)
-        : dir_(option(argc, argv, "--state-dir", ".chat")), lock_(dir_),
-          host_(option(argc, argv, "--host", "127.0.0.1")), tenant_(option(argc, argv, "--tenant")),
+        : dir_(option(argc, argv, "--state-dir", ".chat")),
+          lock_(dir_),
+          host_(option(argc, argv, "--host", "127.0.0.1")),
+          tenant_(option(argc, argv, "--tenant")),
           user_(option(argc, argv, "--user")),
-          port_(port_number(option(argc, argv, "--port", "7777")))
-    {
+          port_(port_number(option(argc, argv, "--port", "7777"))) {
         auto secret = std::getenv("CHAT_TOKEN");
         if (tenant_.empty() || user_.empty() || !secret || !*secret)
             throw std::runtime_error("--tenant, --user and CHAT_TOKEN are required");
@@ -407,7 +444,8 @@ class Daemon
             std::string saved((std::istreambuf_iterator<char>(previous)), {});
             if (saved != identity)
                 throw std::runtime_error(
-                    "State directory belongs to a different account; use a separate --state-dir.");
+                    "State directory belongs to a different account; use a separate --state-dir."
+                );
         } else {
             std::ofstream saved(dir_ / "identity", std::ios::binary);
             saved << identity;
@@ -430,8 +468,7 @@ class Daemon
                     cache_bytes_ -= journal_line(cache_.front()).size() + 1;
                     cache_.pop_front();
                 }
-            } catch (...) {
-            }
+            } catch (...) {}
         }
         listener_ = listen_tcp("127.0.0.1", port_number(option(argc, argv, "--ipc-port", "0")));
         nonblocking(listener_);
@@ -439,13 +476,12 @@ class Daemon
         publish();
         std::cout << "READY 127.0.0.1:" << local_port(listener_) << std::endl;
     }
-    ~Daemon()
-    {
+
+    ~Daemon() {
         if (connecting_.valid())
             try {
                 close_socket(connecting_.get());
-            } catch (...) {
-            }
+            } catch (...) {}
         if (upstream_)
             close_socket(upstream_->socket);
         for (auto& [socket, peer] : peers_) {
@@ -456,13 +492,15 @@ class Daemon
         std::error_code ignored;
         std::filesystem::remove(dir_ / "endpoint", ignored);
     }
-    void run()
-    {
+
+    void
+    run() {
         for (;;) {
             if (!upstream_ && Clock::now() >= retry_)
                 connect();
-            if (upstream_ && !online_ &&
-                Clock::now() - upstream_->created > std::chrono::seconds(10))
+            if (upstream_
+                && !online_
+                && Clock::now() - upstream_->created > std::chrono::seconds(10))
                 disconnected();
             if (online_ && Clock::now() - last_remote_ > std::chrono::seconds(45))
                 disconnected();
@@ -537,8 +575,9 @@ class Daemon
     }
 };
 } // namespace
-int main(int argc, char** argv)
-{
+
+int
+main(int argc, char** argv) {
     try {
         if (help_requested(argc, argv)) {
             std::cout << "chat-daemon --tenant TENANT --user USER [--host 127.0.0.1] [--port 7777] "
@@ -547,7 +586,10 @@ int main(int argc, char** argv)
             return 0;
         }
         check_options(
-            argc, argv, {"--tenant", "--user", "--host", "--port", "--state-dir", "--ipc-port"});
+            argc,
+            argv,
+            {"--tenant", "--user", "--host", "--port", "--state-dir", "--ipc-port"}
+        );
         Daemon daemon(argc, argv);
         daemon.run();
     } catch (const std::exception& error) {

@@ -10,48 +10,47 @@
 #include <netinet/tcp.h>
 #endif
 
-namespace client
-{
-namespace
-{
+namespace client {
+namespace {
 using namespace chat;
 constexpr std::size_t output_limit = 2 * 1024 * 1024;
 constexpr std::size_t input_limit = 8 * 1024 * 1024;
 constexpr std::size_t input_reserve = 2 * 1024 * 1024;
 
-class OwnedSocket
-{
+class OwnedSocket {
     Socket value_ = invalid_socket;
 
-  public:
-    explicit OwnedSocket(Socket value = invalid_socket) : value_(value) {}
-    ~OwnedSocket()
-    {
+public:
+    explicit OwnedSocket(Socket value = invalid_socket)
+        : value_(value) {}
+
+    ~OwnedSocket() {
         close_socket(value_);
     }
+
     OwnedSocket(const OwnedSocket&) = delete;
     OwnedSocket& operator=(const OwnedSocket&) = delete;
-    OwnedSocket(OwnedSocket&& other) noexcept : value_(std::exchange(other.value_, invalid_socket))
-    {
-    }
-    Socket get() const
-    {
+
+    OwnedSocket(OwnedSocket&& other) noexcept
+        : value_(std::exchange(other.value_, invalid_socket)) {}
+
+    Socket
+    get() const {
         return value_;
     }
-    void reset(Socket value)
-    {
+
+    void
+    reset(Socket value) {
         close_socket(value_);
         value_ = value;
     }
 };
 
-class Wakeup
-{
+class Wakeup {
     OwnedSocket reader_, writer_;
 
-  public:
-    Wakeup()
-    {
+public:
+    Wakeup() {
         OwnedSocket listener(listen_tcp("127.0.0.1", 0));
         writer_.reset(connect_tcp("127.0.0.1", local_port(listener.get())));
         reader_.reset(::accept(listener.get(), nullptr, nullptr));
@@ -60,33 +59,38 @@ class Wakeup
         nonblocking(reader_.get());
         nonblocking(writer_.get());
         const int yes = 1;
-        if (setsockopt(writer_.get(),
-                       IPPROTO_TCP,
-                       TCP_NODELAY,
-                       reinterpret_cast<const char*>(&yes),
-                       sizeof(yes)) != 0)
+        if (setsockopt(
+                writer_.get(),
+                IPPROTO_TCP,
+                TCP_NODELAY,
+                reinterpret_cast<const char*>(&yes),
+                sizeof(yes)
+            )
+            != 0)
             throw std::runtime_error("Cannot configure session wakeup");
     }
-    Socket reader() const
-    {
+
+    Socket
+    reader() const {
         return reader_.get();
     }
-    void notify() noexcept
-    {
+
+    void
+    notify() noexcept {
         const std::byte byte{1};
         // EWOULDBLOCK means an earlier wake is already waiting for the reader.
         (void)transmit(writer_.get(), std::span(&byte, 1));
     }
-    void drain()
-    {
+
+    void
+    drain() {
         std::byte bytes[1024];
-        while (receive(reader_.get(), bytes) > 0) {
-        }
+        while (receive(reader_.get(), bytes) > 0) {}
     }
 };
 
-std::size_t frame_size(const Frame& frame)
-{
+std::size_t
+frame_size(const Frame& frame) {
     std::size_t bytes = sizeof(Frame) + frame.fields.size() * sizeof(std::string);
     for (const auto& field : frame.fields)
         bytes += field.size();
@@ -109,8 +113,8 @@ struct Session::Impl {
     std::thread worker;
 
     Impl(OwnedSocket connected, Frame hello, std::function<void()> callback)
-        : socket(std::move(connected)), notify(std::move(callback))
-    {
+        : socket(std::move(connected)),
+          notify(std::move(callback)) {
         nonblocking(socket.get());
         auto bytes = encode(hello);
         if (bytes.size() > output_limit)
@@ -123,8 +127,8 @@ struct Session::Impl {
         poller.set(socket.get(), true);
         worker = std::thread([this] { run(); });
     }
-    ~Impl()
-    {
+
+    ~Impl() {
         {
             std::lock_guard lock(mutex);
             stopping = true;
@@ -133,16 +137,17 @@ struct Session::Impl {
         if (worker.joinable())
             worker.join();
     }
-    void alert() noexcept
-    {
+
+    void
+    alert() noexcept {
         try {
             if (notify)
                 notify();
-        } catch (...) {
-        }
+        } catch (...) {}
     }
-    void disconnect() noexcept
-    {
+
+    void
+    disconnect() noexcept {
         bool signal = false;
         {
             std::lock_guard lock(mutex);
@@ -162,8 +167,9 @@ struct Session::Impl {
         if (signal)
             alert();
     }
-    bool receive_batch()
-    {
+
+    bool
+    receive_batch() {
         std::size_t slots = 0;
         {
             std::lock_guard lock(mutex);
@@ -194,8 +200,9 @@ struct Session::Impl {
         }
         return true;
     }
-    void run() noexcept
-    {
+
+    void
+    run() noexcept {
         std::vector<std::byte> current;
         std::size_t offset = 0;
         try {
@@ -222,12 +229,13 @@ struct Session::Impl {
                     if (ready.readable && !readable)
                         throw std::runtime_error("Daemon closed while input was paused");
                     if (ready.readable) {
-                        for (int batch = 0; batch < 64 && receive_batch(); ++batch) {
-                        }
+                        for (int batch = 0; batch < 64 && receive_batch(); ++batch) {}
                     }
                     if (ready.writable && !current.empty()) {
-                        auto count = transmit(socket.get(),
-                                              std::span<const std::byte>(current).subspan(offset));
+                        auto count = transmit(
+                            socket.get(),
+                            std::span<const std::byte>(current).subspan(offset)
+                        );
                         if (count < 0 && !would_block())
                             throw std::runtime_error("Daemon write failed");
                         if (count == 0)
@@ -262,14 +270,15 @@ struct Session::Impl {
     }
 };
 
-Session::Session(chat::Socket connected, chat::Frame hello, std::function<void()> notify)
-{
+Session::Session(chat::Socket connected, chat::Frame hello, std::function<void()> notify) {
     OwnedSocket owned(connected);
     impl_ = std::make_unique<Impl>(std::move(owned), std::move(hello), std::move(notify));
 }
+
 Session::~Session() = default;
-void Session::send(chat::Frame frame)
-{
+
+void
+Session::send(chat::Frame frame) {
     auto bytes = chat::encode(frame);
     {
         std::lock_guard lock(impl_->mutex);
@@ -284,8 +293,9 @@ void Session::send(chat::Frame frame)
     }
     impl_->wake.notify();
 }
-std::vector<chat::Frame> Session::take()
-{
+
+std::vector<chat::Frame>
+Session::take() {
     std::vector<chat::Frame> frames;
     {
         std::lock_guard lock(impl_->mutex);

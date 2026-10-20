@@ -10,28 +10,26 @@
 #include <list>
 #include <utility>
 
-namespace client::ui
-{
-namespace
-{
+namespace client::ui {
+namespace {
 using namespace ftxui;
 const auto accent = theme::rgb(theme::accent);
 const auto muted = theme::rgb(theme::secondary);
 const auto ink = theme::rgb(theme::text);
 const auto panel = theme::rgb(theme::canvas);
 
-Element rule()
-{
+Element
+rule() {
     return separator() | color(theme::rgb(theme::outline));
 }
 
-std::string safe(std::string_view value)
-{
+std::string
+safe(std::string_view value) {
     return chat::terminal_safe(value);
 }
 
-std::string connection(std::string_view value)
-{
+std::string
+connection(std::string_view value) {
     if (value == "online" || value == "connected")
         return "● 在线";
     if (value == "connecting")
@@ -43,8 +41,8 @@ std::string connection(std::string_view value)
     return safe(value);
 }
 
-std::string local_time(std::int64_t millis, const char* format)
-{
+std::string
+local_time(std::int64_t millis, const char* format) {
     if (millis <= 0)
         return {};
     const auto seconds = static_cast<std::time_t>(millis / 1000);
@@ -61,8 +59,8 @@ std::string local_time(std::int64_t millis, const char* format)
     return buffer;
 }
 
-std::string delivery(Delivery value)
-{
+std::string
+delivery(Delivery value) {
     switch (value) {
     case Delivery::pending:
         return "发送中…";
@@ -78,16 +76,22 @@ std::string delivery(Delivery value)
     return {};
 }
 
-Element metadata(const Message& value, const State& state)
-{
+Element
+metadata(const Message& value, const State& state) {
     const bool own = value.author == state.user;
-    Elements items{text(own ? "你" : safe(value.author)) | bold | color(own ? accent : ink),
-                   text("  " + local_time(value.time_ms, "%H:%M")) | color(muted)};
+    Elements items{
+        text(own ? "你" : safe(value.author)) | bold | color(own ? accent : ink),
+        text("  " + local_time(value.time_ms, "%H:%M")) | color(muted)
+    };
     if (own)
-        items.push_back(text("  · " + delivery(value.delivery)) |
-                        color(value.delivery == Delivery::failed      ? theme::rgb(theme::error)
-                              : value.delivery == Delivery::uncertain ? theme::rgb(theme::warning)
-                                                                      : muted));
+        items.push_back(
+            text("  · " + delivery(value.delivery))
+            | color(
+                value.delivery == Delivery::failed      ? theme::rgb(theme::error)
+                : value.delivery == Delivery::uncertain ? theme::rgb(theme::warning)
+                                                        : muted
+            )
+        );
     return hbox(std::move(items));
 }
 
@@ -98,13 +102,14 @@ struct Visibility {
 
 Element timeline(const State& state, int columns, int rows, Visibility* visibility);
 
-Element room_list(const State& state)
-{
+Element
+room_list(const State& state) {
     Elements items;
     for (const auto& [name, room] : state.rooms) {
         auto row = hbox(
             {text(" # " + safe(name)) | flex,
-             text(room.unread ? " " + std::to_string(room.unread) + " " : " ") | color(accent)});
+             text(room.unread ? " " + std::to_string(room.unread) + " " : " ") | color(accent)}
+        );
         if (name == state.active_room)
             row = row | bold | color(accent) | bgcolor(theme::rgb(theme::selection));
         items.push_back(row);
@@ -113,40 +118,45 @@ Element room_list(const State& state)
     return vbox(std::move(items)) | frame | flex;
 }
 
-Element help()
-{
-    return vbox({text("键盘，也可以很轻松") | bold | color(accent),
-                 text(""),
-                 text("Enter        发送消息"),
-                 text("Tab          切换房间"),
-                 text("↑ / ↓        输入历史"),
-                 text("PgUp / PgDn  翻阅消息"),
-                 text("Ctrl+R       标记当前可见消息已读"),
-                 text("F1 / Esc     关闭帮助"),
-                 text("Ctrl+C       退出"),
-                 text(""),
-                 paragraph("命令：/join 房间  /rooms  /history  /read  /quit")}) |
-           borderStyled(theme::rgb(theme::outline)) | color(ink) |
-           bgcolor(theme::rgb(theme::input)) | center;
+Element
+help() {
+    return vbox(
+               {text("键盘，也可以很轻松") | bold | color(accent),
+                text(""),
+                text("Enter        发送消息"),
+                text("Tab          切换房间"),
+                text("↑ / ↓        输入历史"),
+                text("PgUp / PgDn  翻阅消息"),
+                text("Ctrl+R       标记当前可见消息已读"),
+                text("F1 / Esc     关闭帮助"),
+                text("Ctrl+C       退出"),
+                text(""),
+                paragraph("命令：/join 房间  /rooms  /history  /read  /quit")}
+           )
+           | borderStyled(theme::rgb(theme::outline))
+           | color(ink)
+           | bgcolor(theme::rgb(theme::input))
+           | center;
 }
 } // namespace
 
-class LayoutCache
-{
-  public:
-    LayoutMetrics metrics() const
-    {
+class LayoutCache {
+public:
+    LayoutMetrics
+    metrics() const {
         return {entries_.size(), bytes_ + height_bytes()};
     }
-    std::size_t height(const Message& message, int width)
-    {
+
+    std::size_t
+    height(const Message& message, int width) {
         // This fingerprint is only an ephemeral layout memo, not authentication.
         const auto fingerprint = std::hash<std::string_view>{}(message.text);
         const auto found = std::find_if(heights_.begin(), heights_.end(), [&](const Height& item) {
             return item.identity == &message && item.width == width;
         });
-        if (found != heights_.end() && found->fingerprint == fingerprint &&
-            found->source_size == message.text.size())
+        if (found != heights_.end()
+            && found->fingerprint == fingerprint
+            && found->source_size == message.text.size())
             return found->rows;
         const auto rows = lines(message, width).size();
         Height item{&message, width, fingerprint, message.text.size(), rows};
@@ -159,11 +169,13 @@ class LayoutCache
         trim(0);
         return rows;
     }
-    const std::vector<std::string>& lines(const Message& message, int width)
-    {
+
+    const std::vector<std::string>&
+    lines(const Message& message, int width) {
         auto found = std::find_if(entries_.begin(), entries_.end(), [&](const Entry& entry) {
-            return entry.identity == &message && entry.width == width &&
-                   entry.source == message.text;
+            return entry.identity == &message
+                   && entry.width == width
+                   && entry.source == message.text;
         });
         if (found != entries_.end()) {
             entries_.splice(entries_.begin(), entries_, found);
@@ -174,8 +186,10 @@ class LayoutCache
         entry.width = width;
         entry.source = message.text;
         entry.lines = wrap(message.text, width);
-        entry.bytes = sizeof(Entry) + 2 * sizeof(void*) + entry.source.capacity() +
-                      entry.lines.capacity() * sizeof(std::string);
+        entry.bytes = sizeof(Entry)
+                      + 2 * sizeof(void*)
+                      + entry.source.capacity()
+                      + entry.lines.capacity() * sizeof(std::string);
         for (const auto& line : entry.lines)
             entry.bytes += line.capacity();
         trim(entry.bytes);
@@ -184,7 +198,7 @@ class LayoutCache
         return entries_.front().lines;
     }
 
-  private:
+private:
     struct Entry {
         const Message* identity = nullptr;
         int width = 0;
@@ -192,32 +206,36 @@ class LayoutCache
         std::vector<std::string> lines;
         std::size_t bytes = 0;
     };
+
     std::list<Entry> entries_;
     std::size_t bytes_ = 0;
+
     struct Height {
         const Message* identity;
         int width;
         std::size_t fingerprint, source_size, rows;
     };
+
     std::vector<Height> heights_;
     std::size_t replacement_ = 0;
 
-    std::size_t height_bytes() const
-    {
+    std::size_t
+    height_bytes() const {
         return heights_.capacity() * sizeof(Height);
     }
 
-    void trim(std::size_t additional)
-    {
-        while (!entries_.empty() && ((additional && entries_.size() >= 128) ||
-                                     bytes_ + additional + height_bytes() > 8 * 1024 * 1024)) {
+    void
+    trim(std::size_t additional) {
+        while (!entries_.empty()
+               && ((additional && entries_.size() >= 128)
+                   || bytes_ + additional + height_bytes() > 8 * 1024 * 1024)) {
             bytes_ -= entries_.back().bytes;
             entries_.pop_back();
         }
     }
 
-    static std::vector<std::string> wrap(std::string_view input, int width)
-    {
+    static std::vector<std::string>
+    wrap(std::string_view input, int width) {
         std::vector<std::string> output;
         std::size_t start = 0;
         do {
@@ -246,34 +264,35 @@ class LayoutCache
     }
 };
 
-LayoutMetrics layout_metrics(const State& state)
-{
+LayoutMetrics
+layout_metrics(const State& state) {
     return state.layout_cache ? state.layout_cache->metrics() : LayoutMetrics{};
 }
 
-namespace
-{
-int body_width(int columns, int rows)
-{
+namespace {
+int
+body_width(int columns, int rows) {
     return std::max(2, columns - (columns >= 88 && rows >= 16 ? 23 : 0) - 1);
 }
 
-bool begins_day(const Room& room, std::size_t index)
-{
+bool
+begins_day(const Room& room, std::size_t index) {
     const auto date = local_time(room.messages[index].time_ms, "%Y年%m月%d日");
-    return !date.empty() &&
-           (index == 0 || date != local_time(room.messages[index - 1].time_ms, "%Y年%m月%d日"));
+    return !date.empty()
+           && (index == 0 || date != local_time(room.messages[index - 1].time_ms, "%Y年%m月%d日"));
 }
 
-Element timeline(const State& state, int columns, int rows, Visibility* visibility)
-{
+Element
+timeline(const State& state, int columns, int rows, Visibility* visibility) {
     auto found = state.rooms.find(state.active_room);
     if (found == state.rooms.end() || found->second.messages.empty())
-        return vbox({filler(),
-                     text("这里，是对话的开始。") | color(accent) | hcenter,
-                     text("写下第一句话吧。") | color(muted) | hcenter,
-                     filler()}) |
-               flex;
+        return vbox(
+                   {filler(),
+                    text("这里，是对话的开始。") | color(accent) | hcenter,
+                    text("写下第一句话吧。") | color(muted) | hcenter,
+                    filler()}
+               )
+               | flex;
     if (!state.layout_cache)
         state.layout_cache = std::make_shared<LayoutCache>();
     const auto& room = found->second;
@@ -326,68 +345,88 @@ Element timeline(const State& state, int columns, int rows, Visibility* visibili
 }
 } // namespace
 
-static ftxui::Element make_view(const State& state,
-                                ftxui::Element composer,
-                                int columns,
-                                int rows,
-                                ftxui::Element rooms_element,
-                                Visibility* visibility)
-{
+static ftxui::Element
+make_view(
+    const State& state,
+    ftxui::Element composer,
+    int columns,
+    int rows,
+    ftxui::Element rooms_element,
+    Visibility* visibility
+) {
     using namespace ftxui;
     if (columns < 30 || rows < 9)
-        return vbox({text("Socket Chats") | color(accent),
-                     text("# " + safe(state.active_room)),
-                     rule(),
-                     std::move(composer) | flex,
-                     text("Enter 发送 · Ctrl+C 退出") | color(muted)}) |
-               color(ink) | bgcolor(panel) | frame;
-    auto header = hbox({text("  SOCKET / CHATS") | bold | color(ink),
-                        filler(),
-                        text(safe(state.tenant) + " / " + safe(state.user) + "  ") | color(muted)});
+        return vbox(
+                   {text("Socket Chats") | color(accent),
+                    text("# " + safe(state.active_room)),
+                    rule(),
+                    std::move(composer) | flex,
+                    text("Enter 发送 · Ctrl+C 退出") | color(muted)}
+               )
+               | color(ink)
+               | bgcolor(panel)
+               | frame;
+    auto header = hbox(
+        {text("  SOCKET / CHATS") | bold | color(ink),
+         filler(),
+         text(safe(state.tenant) + " / " + safe(state.user) + "  ") | color(muted)}
+    );
     auto found = state.rooms.find(state.active_room);
     auto unread = found == state.rooms.end() ? 0 : found->second.unread;
-    auto title =
-        hbox({text("# " + safe(state.active_room)) | bold,
-              text(unread ? "  · " + std::to_string(unread) + " 条未读" : "") | color(accent),
-              filler(),
-              text(connection(state.connection)) |
-                  color(state.connection == "online" ? theme::rgb(theme::success) : muted)});
+    auto title = hbox(
+        {text("# " + safe(state.active_room)) | bold,
+         text(unread ? "  · " + std::to_string(unread) + " 条未读" : "") | color(accent),
+         filler(),
+         text(connection(state.connection))
+             | color(state.connection == "online" ? theme::rgb(theme::success) : muted)}
+    );
     auto conversation = vbox({title, rule(), timeline(state, columns, rows, visibility)}) | flex;
     Element main = conversation;
     if (columns >= 88 && rows >= 16) {
-        auto sidebar = vbox({text(" 房间") | bold | color(muted),
-                             text(""),
-                             rooms_element ? std::move(rooms_element) | flex : room_list(state),
-                             text(" Tab 切换") | color(muted)}) |
-                       size(WIDTH, EQUAL, 21) | bgcolor(theme::rgb(theme::sidebar));
+        auto sidebar = vbox(
+                           {text(" 房间") | bold | color(muted),
+                            text(""),
+                            rooms_element ? std::move(rooms_element) | flex : room_list(state),
+                            text(" Tab 切换") | color(muted)}
+                       )
+                       | size(WIDTH, EQUAL, 21)
+                       | bgcolor(theme::rgb(theme::sidebar));
         main = hbox({sidebar, rule(), text(" "), conversation});
     }
-    auto draft = vbox({hbox({text(" 写消息 ") | color(muted), rule() | flex}),
-                       std::move(composer) | size(HEIGHT, LESS_THAN, rows >= 20 ? 4 : 2) |
-                           bgcolor(theme::rgb(theme::input)) | frame});
+    auto draft = vbox(
+        {hbox({text(" 写消息 ") | color(muted), rule() | flex}),
+         std::move(composer)
+             | size(HEIGHT, LESS_THAN, rows >= 20 ? 4 : 2)
+             | bgcolor(theme::rgb(theme::input))
+             | frame}
+    );
     const auto shortcuts = columns < 70
                                ? " Enter 发送 · Tab 房间 · F1 帮助"
                                : " Enter 发送   Tab 房间   PgUp 历史   Ctrl+R 已读   F1 帮助";
     auto footer = state.notice.empty() ? shortcuts : " " + safe(state.notice);
-    auto result = vbox({header, rule(), main | flex, draft, text(footer) | color(muted)}) |
-                  color(ink) | bgcolor(panel);
+    auto result = vbox({header, rule(), main | flex, draft, text(footer) | color(muted)})
+                  | color(ink)
+                  | bgcolor(panel);
     if (state.help)
         result = dbox({result, help()});
-    return result | size(WIDTH, EQUAL, std::max(columns, 1)) |
-           size(HEIGHT, EQUAL, std::max(rows, 1));
+    return result
+           | size(WIDTH, EQUAL, std::max(columns, 1))
+           | size(HEIGHT, EQUAL, std::max(rows, 1));
 }
 
-ftxui::Element conversation_view(const State& state,
-                                 ftxui::Element composer,
-                                 int columns,
-                                 int rows,
-                                 ftxui::Element rooms_element)
-{
+ftxui::Element
+conversation_view(
+    const State& state,
+    ftxui::Element composer,
+    int columns,
+    int rows,
+    ftxui::Element rooms_element
+) {
     return make_view(state, std::move(composer), columns, rows, std::move(rooms_element), nullptr);
 }
 
-std::uint64_t visible_message_max(const State& state, int columns, int rows)
-{
+std::uint64_t
+visible_message_max(const State& state, int columns, int rows) {
     if (columns < 30 || rows < 9 || state.help)
         return 0;
     Visibility visibility;
@@ -406,8 +445,8 @@ std::uint64_t visible_message_max(const State& state, int columns, int rows)
     return maximum;
 }
 
-std::size_t maximum_scroll(const State& state, int columns, int rows)
-{
+std::size_t
+maximum_scroll(const State& state, int columns, int rows) {
     const auto found = state.rooms.find(state.active_room);
     if (found == state.rooms.end() || columns < 30 || rows < 9)
         return 0;
@@ -416,8 +455,9 @@ std::size_t maximum_scroll(const State& state, int columns, int rows)
     const auto& room = found->second;
     std::size_t total = 0;
     for (std::size_t i = 0; i < room.messages.size(); ++i)
-        total += state.layout_cache->height(room.messages[i], body_width(columns, rows)) + 2 +
-                 (begins_day(room, i) ? 2 : 0);
+        total += state.layout_cache->height(room.messages[i], body_width(columns, rows))
+                 + 2
+                 + (begins_day(room, i) ? 2 : 0);
     // Use the smallest timeline produced by the maximum composer height. The
     // oldest page remains populated even if the draft grows after paging.
     const auto viewport = static_cast<std::size_t>(std::max(1, rows - (rows >= 20 ? 10 : 8)));

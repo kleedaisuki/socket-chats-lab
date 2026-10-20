@@ -5,30 +5,28 @@
 #include <limits>
 #include <stdexcept>
 
-namespace chat
-{
-namespace
-{
+namespace chat {
+namespace {
 using Bytes = std::vector<std::byte>;
 
-[[noreturn]] void invalid()
-{
+[[noreturn]] void
+invalid() {
     throw std::runtime_error("invalid SCL1 frame");
 }
 
-unsigned byte(std::byte b)
-{
+unsigned
+byte(std::byte b) {
     return std::to_integer<unsigned>(b);
 }
 
-void put(Bytes& b, std::uint32_t v, unsigned n)
-{
+void
+put(Bytes& b, std::uint32_t v, unsigned n) {
     for (unsigned i = n; i > 0; --i)
         b.push_back(std::byte((v >> ((i - 1) * 8)) & 255));
 }
 
-std::uint32_t get(std::span<const std::byte> b, std::size_t p, unsigned n)
-{
+std::uint32_t
+get(std::span<const std::byte> b, std::size_t p, unsigned n) {
     if (p > b.size() || n > b.size() - p)
         invalid();
     std::uint32_t v = 0;
@@ -37,13 +35,13 @@ std::uint32_t get(std::span<const std::byte> b, std::size_t p, unsigned n)
     return v;
 }
 
-bool secret(Type t)
-{
+bool
+secret(Type t) {
     return t == Type::hello || t == Type::welcome;
 }
 
-Bytes pack(std::span<const std::byte> in)
-{
+Bytes
+pack(std::span<const std::byte> in) {
     std::array<std::uint32_t, 65536> table;
     table.fill(std::numeric_limits<std::uint32_t>::max());
     Bytes out;
@@ -81,8 +79,8 @@ Bytes pack(std::span<const std::byte> in)
     return out;
 }
 
-Bytes unpack(std::span<const std::byte> in, std::size_t size)
-{
+Bytes
+unpack(std::span<const std::byte> in, std::size_t size) {
     Bytes out;
     out.reserve(size);
     std::size_t p = 0;
@@ -117,23 +115,31 @@ struct Header {
     bool compressed;
 };
 
-Header header(std::span<const std::byte> b)
-{
-    if (b.size() < 20 || get(b, 0, 4) != 0x53434c31 || byte(b[4]) != 1 || byte(b[5]) < 1 ||
-        byte(b[5]) > 16)
+Header
+header(std::span<const std::byte> b) {
+    if (b.size() < 20
+        || get(b, 0, 4) != 0x53434c31
+        || byte(b[4]) != 1
+        || byte(b[5]) < 1
+        || byte(b[5]) > 16)
         invalid();
     auto flags = get(b, 6, 2);
     auto wire = get(b, 12, 4);
     auto raw = get(b, 16, 4);
     auto type = static_cast<Type>(byte(b[5]));
-    if (flags > 1 || wire > max_payload || raw > max_payload || raw < 2 || wire < 2 ||
-        (!flags && wire != raw) || (flags && secret(type)))
+    if (flags > 1
+        || wire > max_payload
+        || raw > max_payload
+        || raw < 2
+        || wire < 2
+        || (!flags && wire != raw)
+        || (flags && secret(type)))
         invalid();
     return {type, get(b, 8, 4), wire, raw, flags == 1};
 }
 
-Frame decode(std::span<const std::byte> wire, const Header& h)
-{
+Frame
+decode(std::span<const std::byte> wire, const Header& h) {
     Bytes storage;
     if (h.compressed) {
         storage = unpack(wire, h.raw);
@@ -162,8 +168,8 @@ Frame decode(std::span<const std::byte> wire, const Header& h)
 }
 } // namespace
 
-std::vector<std::byte> encode(const Frame& f, bool compress)
-{
+std::vector<std::byte>
+encode(const Frame& f, bool compress) {
     auto type = static_cast<unsigned>(f.type);
     if (type < 1 || type > 16 || f.fields.size() > 128)
         invalid();
@@ -197,8 +203,8 @@ std::vector<std::byte> encode(const Frame& f, bool compress)
     return out;
 }
 
-std::vector<Frame> Decoder::feed(std::span<const std::byte> input)
-{
+std::vector<Frame>
+Decoder::feed(std::span<const std::byte> input) {
     std::vector<Frame> frames;
     while (!input.empty()) {
         auto target = bytes_.size() < 20 ? 20 : 20 + header(bytes_).wire;
@@ -217,10 +223,9 @@ std::vector<Frame> Decoder::feed(std::span<const std::byte> input)
 }
 } // namespace chat
 
-namespace chat
-{
-std::size_t Decoder::bytes_needed() const
-{
+namespace chat {
+std::size_t
+Decoder::bytes_needed() const {
     return bytes_.size() < 20 ? 20 - bytes_.size() : 20 + header(bytes_).wire - bytes_.size();
 }
 } // namespace chat

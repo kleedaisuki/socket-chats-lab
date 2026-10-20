@@ -11,16 +11,15 @@
 #include <random>
 #include <stdexcept>
 
-namespace
-{
-void require(bool condition, const char* reason)
-{
+namespace {
+void
+require(bool condition, const char* reason) {
     if (!condition)
         throw std::runtime_error(reason);
 }
 
-double luminance(std::uint32_t rgb)
-{
+double
+luminance(std::uint32_t rgb) {
     const auto channel = [](std::uint32_t value) {
         const double scaled = static_cast<double>(value & 255) / 255;
         return scaled <= 0.04045 ? scaled / 12.92 : std::pow((scaled + 0.055) / 1.055, 2.4);
@@ -28,40 +27,50 @@ double luminance(std::uint32_t rgb)
     return 0.2126 * channel(rgb >> 16) + 0.7152 * channel(rgb >> 8) + 0.0722 * channel(rgb);
 }
 
-void theme_checks()
-{
+void
+theme_checks() {
     namespace theme = client::ui::theme;
     for (const auto background : {theme::canvas, theme::sidebar, theme::input, theme::selection}) {
-        for (const auto foreground : {theme::text,
-                                      theme::secondary,
-                                      theme::accent,
-                                      theme::success,
-                                      theme::warning,
-                                      theme::error}) {
+        for (const auto foreground :
+             {theme::text,
+              theme::secondary,
+              theme::accent,
+              theme::success,
+              theme::warning,
+              theme::error}) {
             const auto light = luminance(foreground);
             const auto dark = luminance(background);
-            require((std::max(light, dark) + 0.05) / (std::min(light, dark) + 0.05) >= 4.5,
-                    "theme: text contrast below 4.5:1");
+            require(
+                (std::max(light, dark) + 0.05) / (std::min(light, dark) + 0.05) >= 4.5,
+                "theme: text contrast below 4.5:1"
+            );
         }
     }
     auto screen = ftxui::Screen::Create(ftxui::Dimension::Fixed(30), ftxui::Dimension::Fixed(1));
     ftxui::Render(screen, theme::editor({ftxui::text("draft") | ftxui::flex, false, true, false}));
-    require(!screen.CellAt(1, 0).inverted &&
-                screen.CellAt(1, 0).background_color == theme::rgb(theme::input) &&
-                screen.CellAt(1, 0).foreground_color == theme::rgb(theme::text),
-            "theme: focused editor must not invert the full input field");
+    require(
+        !screen.CellAt(1, 0).inverted
+            && screen.CellAt(1, 0).background_color == theme::rgb(theme::input)
+            && screen.CellAt(1, 0).foreground_color == theme::rgb(theme::text),
+        "theme: focused editor must not invert the full input field"
+    );
     ftxui::Render(screen, theme::room({"# lobby 2", true, true, true, 0}));
-    require(screen.CellAt(0, 0).character == ">" && screen.CellAt(0, 0).underlined &&
-                !screen.CellAt(0, 0).inverted &&
-                screen.CellAt(0, 0).background_color == theme::rgb(theme::selection),
-            "theme: room selection/focus needs a non-color cue and explicit dark background");
+    require(
+        screen.CellAt(0, 0).character == ">"
+            && screen.CellAt(0, 0).underlined
+            && !screen.CellAt(0, 0).inverted
+            && screen.CellAt(0, 0).background_color == theme::rgb(theme::selection),
+        "theme: room selection/focus needs a non-color cue and explicit dark background"
+    );
     ftxui::Render(screen, theme::action({"发送", false, false, true, 0}, true));
-    require(screen.CellAt(2, 0).underlined && !screen.CellAt(2, 0).inverted,
-            "theme: send focus must not produce an inverted bright rectangle");
+    require(
+        screen.CellAt(2, 0).underlined && !screen.CellAt(2, 0).inverted,
+        "theme: send focus must not produce an inverted bright rectangle"
+    );
 }
 
-client::ui::State fixture()
-{
+client::ui::State
+fixture() {
     using namespace client::ui;
     State state;
     state.tenant = "thought-lab";
@@ -99,7 +108,8 @@ client::ui::State fixture()
          "这才像一个可以每天使用的聊天窗口。",
          1792383180000,
          Delivery::pending,
-         false}};
+         false}
+    };
     state.rooms.emplace("lobby", std::move(room));
     Room other;
     other.name = "research";
@@ -109,8 +119,8 @@ client::ui::State fixture()
     return state;
 }
 
-ftxui::Screen render(const client::ui::State& state, int columns, int rows)
-{
+ftxui::Screen
+render(const client::ui::State& state, int columns, int rows) {
     auto screen =
         ftxui::Screen::Create(ftxui::Dimension::Fixed(columns), ftxui::Dimension::Fixed(rows));
     auto view =
@@ -119,8 +129,8 @@ ftxui::Screen render(const client::ui::State& state, int columns, int rows)
     return screen;
 }
 
-std::string plain(const ftxui::Screen& screen)
-{
+std::string
+plain(const ftxui::Screen& screen) {
     std::string output;
     for (int y = 0; y < screen.dimy(); ++y) {
         for (int x = 0; x < screen.dimx(); ++x)
@@ -131,8 +141,8 @@ std::string plain(const ftxui::Screen& screen)
 }
 } // namespace
 
-int main(int argc, char** argv)
-{
+int
+main(int argc, char** argv) {
     theme_checks();
     auto state = fixture();
     if (argc == 2 && std::string(argv[1]) == "--benchmark") {
@@ -145,8 +155,10 @@ int main(int argc, char** argv)
         const auto duration =
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
                 .count();
-        std::cout << "FTXUI build+render 120x32, 1004 cached messages, 100 frames: "
-                  << duration / 100 << " ms/frame\n";
+        std::cout
+            << "FTXUI build+render 120x32, 1004 cached messages, 100 frames: "
+            << duration / 100
+            << " ms/frame\n";
         sample.text.clear();
         for (int i = 0; i < 21845; ++i)
             sample.text += "中";
@@ -156,19 +168,30 @@ int main(int argc, char** argv)
             const auto cold_start = std::chrono::steady_clock::now();
             render(state, 120, 32);
             const auto cold_ms = std::chrono::duration<double, std::milli>(
-                                     std::chrono::steady_clock::now() - cold_start)
+                                     std::chrono::steady_clock::now() - cold_start
+            )
                                      .count();
             std::vector<double> samples;
             for (int i = 0; i < 100; ++i) {
                 const auto large_start = std::chrono::steady_clock::now();
                 render(state, 120, 32);
-                samples.push_back(std::chrono::duration<double, std::milli>(
-                                      std::chrono::steady_clock::now() - large_start)
-                                      .count());
+                samples.push_back(
+                    std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - large_start
+                    )
+                        .count()
+                );
             }
             std::sort(samples.begin(), samples.end());
-            std::cout << count << " x65535byte CJK messages: cold=" << cold_ms
-                      << " ms, warm p50=" << samples[50] << " p95=" << samples[95] << " ms/frame\n";
+            std::cout
+                << count
+                << " x65535byte CJK messages: cold="
+                << cold_ms
+                << " ms, warm p50="
+                << samples[50]
+                << " p95="
+                << samples[95]
+                << " ms/frame\n";
         }
         sample.text.clear();
         for (int i = 0; i < 340; ++i)
@@ -190,13 +213,22 @@ int main(int argc, char** argv)
         for (int i = 0; i < 100; ++i) {
             const auto frame_start = std::chrono::steady_clock::now();
             render(state, 120, 32);
-            top_samples.push_back(std::chrono::duration<double, std::milli>(
-                                      std::chrono::steady_clock::now() - frame_start)
-                                      .count());
+            top_samples.push_back(
+                std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - frame_start
+                )
+                    .count()
+            );
         }
         std::sort(top_samples.begin(), top_samples.end());
-        std::cout << "500 distinct1KiBCJK messages, scroll4970: cold=" << top_cold
-                  << " p50=" << top_samples[50] << " p95=" << top_samples[95] << " ms/frame\n";
+        std::cout
+            << "500 distinct1KiBCJK messages, scroll4970: cold="
+            << top_cold
+            << " p50="
+            << top_samples[50]
+            << " p95="
+            << top_samples[95]
+            << " ms/frame\n";
         return 0;
     }
     if (argc == 5 && std::string(argv[1]) == "--snapshot") {
@@ -212,8 +244,10 @@ int main(int argc, char** argv)
          {std::pair{120, 32}, {88, 24}, {60, 18}, {40, 12}, {12, 5}}) {
         auto screen = render(state, columns, rows);
         auto content = plain(screen);
-        require(content.find("PRIVATE_OTHER_ROOM_SENTINEL") == std::string::npos,
-                "inactive room leaked");
+        require(
+            content.find("PRIVATE_OTHER_ROOM_SENTINEL") == std::string::npos,
+            "inactive room leaked"
+        );
         require(content.find("81234") == std::string::npos, "message IDs leaked");
         require(content.find("hidden-nonce") == std::string::npos, "nonce leaked");
         require(content.find('\033') == std::string::npos, "control entered cell data");
@@ -235,16 +269,22 @@ int main(int argc, char** argv)
     state.rooms.at("lobby").scroll = 999;
     require(client::ui::visible_message_max(state) == 0, "history start read marker incorrect");
     state.help = true;
-    require(plain(render(state, 120, 32)).find("键盘") != std::string::npos,
-            "help overlay missing");
+    require(
+        plain(render(state, 120, 32)).find("键盘") != std::string::npos,
+        "help overlay missing"
+    );
     state.help = false;
     state.rooms.at("lobby").scroll = 0;
     auto oversized = fixture();
     oversized.rooms.at("lobby").messages.back().text = std::string(10000, 'x');
-    require(client::ui::visible_message_max(oversized, 40, 12) == 0,
-            "hidden committed message marked read behind oversized optimistic send");
-    require(client::ui::visible_message_max(oversized, 12, 5) == 0,
-            "tiny fallback marked invisible messages read");
+    require(
+        client::ui::visible_message_max(oversized, 40, 12) == 0,
+        "hidden committed message marked read behind oversized optimistic send"
+    );
+    require(
+        client::ui::visible_message_max(oversized, 12, 5) == 0,
+        "tiny fallback marked invisible messages read"
+    );
     auto long_message = fixture();
     std::string large = "START";
     for (int i = 0; i < 21837; ++i)
@@ -252,8 +292,10 @@ int main(int argc, char** argv)
     large += "END";
     long_message.rooms.at("lobby").messages = {{99, {}, "Alice", large, 0}};
     const auto tail = plain(render(long_message, 40, 12));
-    require(tail.find("END") != tail.npos && tail.find("START") == tail.npos,
-            "maximum Chinese message tail not virtualized");
+    require(
+        tail.find("END") != tail.npos && tail.find("START") == tail.npos,
+        "maximum Chinese message tail not virtualized"
+    );
     bool saw_start = false;
     for (std::size_t scroll = 0; scroll < 1300; scroll += 5) {
         long_message.rooms.at("lobby").scroll = scroll;
@@ -264,37 +306,52 @@ int main(int argc, char** argv)
     const auto limit = client::ui::maximum_scroll(long_message, 40, 12);
     long_message.rooms.at("lobby").scroll = limit;
     const auto oldest = plain(render(long_message, 40, 12));
-    require(oldest.find("START") != oldest.npos && oldest.find("已到历史开头") == oldest.npos,
-            "maximum scroll overshoots into an empty history viewport");
+    require(
+        oldest.find("START") != oldest.npos && oldest.find("已到历史开头") == oldest.npos,
+        "maximum scroll overshoots into an empty history viewport"
+    );
     for (int i = 0; i < 100; ++i)
         long_message.rooms.at("lobby").scroll =
             std::min(limit, long_message.rooms.at("lobby").scroll + 6);
-    require(long_message.rooms.at("lobby").scroll == limit,
-            "repeated page-up advances beyond populated history");
+    require(
+        long_message.rooms.at("lobby").scroll == limit,
+        "repeated page-up advances beyond populated history"
+    );
     long_message.rooms.at("lobby").scroll = 0;
     for (const int columns : {120, 40, 88, 60, 120})
-        require(plain(render(long_message, columns, 24)).find("END") != std::string::npos,
-                "width change lost long message tail");
+        require(
+            plain(render(long_message, columns, 24)).find("END") != std::string::npos,
+            "width change lost long message tail"
+        );
     for (int columns = 30; columns < 180; ++columns)
         render(long_message, columns, 24);
     const auto metrics = client::ui::layout_metrics(long_message);
-    require(metrics.entries <= 128 && metrics.bytes <= 8 * 1024 * 1024,
-            "layout cache exceeded bounded retention");
+    require(
+        metrics.entries <= 128 && metrics.bytes <= 8 * 1024 * 1024,
+        "layout cache exceeded bounded retention"
+    );
     auto skipped = fixture();
     skipped.rooms.at("lobby").messages.clear();
     for (int i = 0; i < 500; ++i)
         skipped.rooms.at("lobby").messages.push_back(
-            {static_cast<std::uint64_t>(i + 1), {}, "Alice", "短消息" + std::to_string(i), 0});
+            {static_cast<std::uint64_t>(i + 1), {}, "Alice", "短消息" + std::to_string(i), 0}
+        );
     const auto original_limit = client::ui::maximum_scroll(skipped, 40, 12);
     skipped.rooms.at("lobby").messages.back().text = "changed\nbody\nheight";
-    require(client::ui::maximum_scroll(skipped, 40, 12) == original_limit + 2,
-            "skipped-message height memo ignored changed canonical body");
+    require(
+        client::ui::maximum_scroll(skipped, 40, 12) == original_limit + 2,
+        "skipped-message height memo ignored changed canonical body"
+    );
     skipped.rooms.at("lobby").scroll = client::ui::maximum_scroll(skipped, 40, 12);
-    require(plain(render(skipped, 40, 12)).find("短消息0") != std::string::npos,
-            "deep history maximum scroll lost oldest message");
+    require(
+        plain(render(skipped, 40, 12)).find("短消息0") != std::string::npos,
+        "deep history maximum scroll lost oldest message"
+    );
     long_message.rooms.at("lobby").messages.front().text = "changed canonical body";
-    require(plain(render(long_message, 40, 12)).find("changed canonical body") != std::string::npos,
-            "same identity cache ignored changed canonical body");
+    require(
+        plain(render(long_message, 40, 12)).find("changed canonical body") != std::string::npos,
+        "same identity cache ignored changed canonical body"
+    );
     std::string numbered;
     for (int i = 1000; i < 1100; ++i)
         numbered += "LINE" + std::to_string(i) + "\n";
@@ -305,10 +362,13 @@ int main(int argc, char** argv)
         visited += plain(render(long_message, 40, 12));
     }
     for (int i = 1000; i < 1100; ++i)
-        require(visited.find("LINE" + std::to_string(i)) != visited.npos,
-                "row paging silently skipped canonical body lines");
+        require(
+            visited.find("LINE" + std::to_string(i)) != visited.npos,
+            "row paging silently skipped canonical body lines"
+        );
     state.rooms.at("lobby").messages = {
-        {1, {}, "\033]52;escape\a", "safe\033[2Jvisible\r\n中文\xe2\x80\xae", 0}};
+        {1, {}, "\033]52;escape\a", "safe\033[2Jvisible\r\n中文\xe2\x80\xae", 0}
+    };
     state.user = "Klee\033[2J";
     std::mt19937 random(731);
     for (int trial = 0; trial < 120; ++trial) {

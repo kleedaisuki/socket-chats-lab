@@ -16,27 +16,27 @@
 
 int run_plain(int argc, char** argv);
 
-namespace
-{
+namespace {
 using namespace client;
 using namespace ftxui;
 using ui::Delivery;
 
-bool is_terminal()
-{
+bool
+is_terminal() {
 #ifdef _WIN32
     DWORD input = 0, output = 0;
-    return GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &input) &&
-           GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &output);
+    return GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &input)
+           && GetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), &output);
 #else
     return isatty(STDIN_FILENO) && isatty(STDOUT_FILENO);
 #endif
 }
 
-std::int64_t now_ms()
-{
+std::int64_t
+now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::system_clock::now().time_since_epoch())
+               std::chrono::system_clock::now().time_since_epoch()
+    )
         .count();
 }
 
@@ -47,8 +47,7 @@ struct Request {
     bool synchronize = false, older = false;
 };
 
-class Chat
-{
+class Chat {
     Network network_;
     ConsoleState console_;
     ScreenInteractive screen_ = ScreenInteractive::Fullscreen();
@@ -70,15 +69,15 @@ class Chat
     // The IO worker must join before its screen-notification target is destroyed.
     std::unique_ptr<Session> session_;
 
-    ui::Room& room(const std::string& name)
-    {
+    ui::Room&
+    room(const std::string& name) {
         auto& value = state_.rooms[name];
         value.name = name;
         return value;
     }
 
-    void labels()
-    {
+    void
+    labels() {
         room_names_.clear();
         room_labels_.clear();
         const auto add = [&](const std::string& name, const ui::Room& value) {
@@ -97,15 +96,17 @@ class Chat
         selected_ = found == room_names_.end() ? 0 : static_cast<int>(found - room_names_.begin());
     }
 
-    bool request(Type type,
-                 std::vector<std::string> fields,
-                 std::string name = {},
-                 std::string nonce = {},
-                 std::uint64_t after = 0,
-                 std::uint64_t target = 0,
-                 bool synchronize = false,
-                 bool older = false)
-    {
+    bool
+    request(
+        Type type,
+        std::vector<std::string> fields,
+        std::string name = {},
+        std::string nonce = {},
+        std::uint64_t after = 0,
+        std::uint64_t target = 0,
+        bool synchronize = false,
+        bool older = false
+    ) {
         if (state_.connection != "online") {
             state_.notice = "暂时离线，草稿已保留；连接恢复后再发送。";
             return false;
@@ -121,8 +122,8 @@ class Chat
             session_->send({type, id, std::move(fields)});
             requests_.emplace(
                 id,
-                Request{
-                    type, std::move(name), std::move(nonce), after, target, synchronize, older});
+                Request{type, std::move(name), std::move(nonce), after, target, synchronize, older}
+            );
             return true;
         } catch (const std::exception&) {
             state_.notice = "未能提交给本地后台，草稿已保留。";
@@ -130,36 +131,40 @@ class Chat
         }
     }
 
-    bool pending(Type type, const std::string& name = {}) const
-    {
+    bool
+    pending(Type type, const std::string& name = {}) const {
         return std::any_of(requests_.begin(), requests_.end(), [&](const auto& item) {
             return item.second.type == type && (name.empty() || item.second.room == name);
         });
     }
 
-    bool history_page(const std::string& name,
-                      std::uint64_t after,
-                      std::uint64_t target,
-                      bool synchronize,
-                      bool older = false)
-    {
+    bool
+    history_page(
+        const std::string& name,
+        std::uint64_t after,
+        std::uint64_t target,
+        bool synchronize,
+        bool older = false
+    ) {
         if (pending(Type::history, name))
             return false;
-        const bool accepted = request(Type::history,
-                                      {name, std::to_string(after), "200"},
-                                      name,
-                                      {},
-                                      after,
-                                      target,
-                                      synchronize,
-                                      older);
+        const bool accepted = request(
+            Type::history,
+            {name, std::to_string(after), "200"},
+            name,
+            {},
+            after,
+            target,
+            synchronize,
+            older
+        );
         if (accepted && older)
             older_windows_.insert(name);
         return accepted;
     }
 
-    void synchronize(const std::string& name)
-    {
+    void
+    synchronize(const std::string& name) {
         auto& value = room(name);
         // A recent global-ID window holds at most 200 messages. Advertised room
         // maxima and unsolicited live events are not contiguous history cursors.
@@ -171,8 +176,8 @@ class Chat
             history_page(name, after, value.last_id, true);
     }
 
-    bool older_history()
-    {
+    bool
+    older_history() {
         const auto& value = room(state_.active_room);
         auto oldest = value.last_id;
         for (const auto& item : value.messages)
@@ -183,11 +188,16 @@ class Chat
             return true;
         }
         return history_page(
-            state_.active_room, oldest > 200 ? oldest - 200 : 0, oldest - 1, false, true);
+            state_.active_room,
+            oldest > 200 ? oldest - 200 : 0,
+            oldest - 1,
+            false,
+            true
+        );
     }
 
-    void latest()
-    {
+    void
+    latest() {
         auto& value = room(state_.active_room);
         value.scroll = 0;
         if (older_windows_.erase(state_.active_room)) {
@@ -201,8 +211,8 @@ class Chat
         }
     }
 
-    void activate(const std::string& name)
-    {
+    void
+    activate(const std::string& name) {
         if (name == state_.active_room)
             return;
         drafts_[state_.active_room] = draft_;
@@ -220,16 +230,16 @@ class Chat
         input_->TakeFocus();
     }
 
-    void cycle_room(int direction)
-    {
+    void
+    cycle_room(int direction) {
         if (room_names_.empty())
             return;
         const auto count = static_cast<int>(room_names_.size());
         activate(room_names_[static_cast<std::size_t>((selected_ + direction + count) % count)]);
     }
 
-    void remember_input(const std::string& text)
-    {
+    void
+    remember_input(const std::string& text) {
         if (history_.empty() || history_.back() != text)
             history_.push_back(text);
         if (history_.size() > 100)
@@ -238,8 +248,8 @@ class Chat
         saved_draft_.clear();
     }
 
-    void recall(int direction)
-    {
+    void
+    recall(int direction) {
         if (history_.empty())
             return;
         if (history_index_ == history_.size())
@@ -252,8 +262,8 @@ class Chat
         cursor_ = static_cast<int>(draft_.size());
     }
 
-    void mark_read()
-    {
+    void
+    mark_read() {
         if (pending(Type::history, state_.active_room)) {
             state_.notice = "正在同步历史，完成后再标记已读。";
             return;
@@ -266,8 +276,8 @@ class Chat
         request(Type::read, {state_.active_room, std::to_string(maximum)}, state_.active_room);
     }
 
-    bool command(const std::string& text)
-    {
+    bool
+    command(const std::string& text) {
         if (text == "/quit") {
             screen_.Exit();
             return true;
@@ -304,8 +314,8 @@ class Chat
         return false;
     }
 
-    void submit()
-    {
+    void
+    submit() {
         if (draft_.empty())
             return;
         if (!valid_utf8(draft_) || draft_.size() > 65536) {
@@ -327,7 +337,8 @@ class Chat
                 return;
             auto& value = room(state_.active_room);
             value.messages.push_back(
-                {0, nonce, state_.user, text, now_ms(), Delivery::pending, false});
+                {0, nonce, state_.user, text, now_ms(), Delivery::pending, false}
+            );
             value.scroll = 0;
         }
         remember_input(text);
@@ -337,21 +348,25 @@ class Chat
         input_->TakeFocus();
     }
 
-    void sort_messages(ui::Room& value)
-    {
+    void
+    sort_messages(ui::Room& value) {
         std::stable_sort(
-            value.messages.begin(), value.messages.end(), [](const auto& a, const auto& b) {
+            value.messages.begin(),
+            value.messages.end(),
+            [](const auto& a, const auto& b) {
                 if (!a.id || !b.id)
                     return a.id && !b.id;
                 return a.id < b.id;
-            });
+            }
+        );
         while (value.messages.size() > 500) {
             auto victim = value.messages.begin();
             if (older_windows_.contains(value.name)) {
                 auto found = std::find_if(
-                    value.messages.rbegin(), value.messages.rend(), [](const auto& item) {
-                        return item.delivery != Delivery::pending;
-                    });
+                    value.messages.rbegin(),
+                    value.messages.rend(),
+                    [](const auto& item) { return item.delivery != Delivery::pending; }
+                );
                 if (found == value.messages.rend())
                     break;
                 victim = std::prev(found.base());
@@ -360,8 +375,8 @@ class Chat
         }
     }
 
-    void message(const Frame& frame)
-    {
+    void
+    message(const Frame& frame) {
         const auto& f = frame.fields;
         if (f.size() != 6)
             return;
@@ -369,8 +384,8 @@ class Chat
         auto& value = room(f[1]);
         auto found =
             std::find_if(value.messages.begin(), value.messages.end(), [&](const auto& item) {
-                return item.id == id ||
-                       (!item.nonce.empty() && item.nonce == f[5] && item.author == f[2]);
+                return item.id == id
+                       || (!item.nonce.empty() && item.nonce == f[5] && item.author == f[2]);
             });
         const auto delivery =
             f[2] == state_.user && peer_reads_[f[1]] >= id ? Delivery::read : Delivery::sent;
@@ -389,8 +404,8 @@ class Chat
             refresh_rooms_ = true;
     }
 
-    void connection(const Frame& frame)
-    {
+    void
+    connection(const Frame& frame) {
         if (frame.fields.empty())
             return;
         const auto& next = frame.fields[0];
@@ -423,8 +438,8 @@ class Chat
         }
     }
 
-    void receipt(const Frame& frame)
-    {
+    void
+    receipt(const Frame& frame) {
         const auto& f = frame.fields;
         if (f.size() != 3)
             return;
@@ -441,8 +456,8 @@ class Chat
             refresh_rooms_ = true;
     }
 
-    void room_metadata(const Frame& frame)
-    {
+    void
+    room_metadata(const Frame& frame) {
         for (std::size_t i = 0; i + 2 < frame.fields.size(); i += 3) {
             auto& value = room(frame.fields[i]);
             value.last_id = std::stoull(frame.fields[i + 1]);
@@ -451,8 +466,8 @@ class Chat
         rooms_seen_ = true;
     }
 
-    void result(const Frame& frame, const Request& operation)
-    {
+    void
+    result(const Frame& frame, const Request& operation) {
         if (frame.type == Type::ack && operation.type == Type::join) {
             room(operation.room);
             activate(operation.room);
@@ -483,13 +498,16 @@ class Chat
             if (operation.synchronize)
                 sync_cursors_[operation.room] = std::max(sync_cursors_[operation.room], cursor);
             const bool browsing_older = operation.older && older_windows_.contains(operation.room);
-            if ((operation.synchronize || browsing_older) && cursor > operation.after &&
-                cursor < operation.target)
-                history_page(operation.room,
-                             cursor,
-                             operation.target,
-                             operation.synchronize,
-                             operation.older);
+            if ((operation.synchronize || browsing_older)
+                && cursor > operation.after
+                && cursor < operation.target)
+                history_page(
+                    operation.room,
+                    cursor,
+                    operation.target,
+                    operation.synchronize,
+                    operation.older
+                );
             else if (browsing_older)
                 state_.notice = "已加载较早历史；PgUp 查看，PgDn 到底返回最新。";
         }
@@ -503,8 +521,8 @@ class Chat
         }
     }
 
-    void event(const Frame& frame)
-    {
+    void
+    event(const Frame& frame) {
         switch (frame.type) {
         case Type::message:
             message(frame);
@@ -529,8 +547,8 @@ class Chat
         result(frame, operation);
     }
 
-    bool trim(std::size_t reserve = 0)
-    {
+    bool
+    trim(std::size_t reserve = 0) {
         std::size_t bytes = 0;
         for (const auto& [name, value] : state_.rooms)
             for (const auto& item : value.messages)
@@ -546,9 +564,10 @@ class Chat
                     const bool was_selected = oldest && oldest->name == state_.active_room;
                     const bool newer = selected && older_windows_.contains(name);
                     const bool preferred =
-                        oldest && selected == was_selected &&
-                        (newer ? value.messages[i].time_ms > oldest->messages[index].time_ms
-                               : value.messages[i].time_ms < oldest->messages[index].time_ms);
+                        oldest
+                        && selected == was_selected
+                        && (newer ? value.messages[i].time_ms > oldest->messages[index].time_ms
+                                  : value.messages[i].time_ms < oldest->messages[index].time_ms);
                     if (!oldest || (was_selected && !selected) || preferred) {
                         oldest = &value;
                         index = i;
@@ -564,8 +583,8 @@ class Chat
         return true;
     }
 
-    void network_events()
-    {
+    void
+    network_events() {
         for (const auto& frame : session_->take()) {
             try {
                 event(frame);
@@ -577,15 +596,17 @@ class Chat
             refresh_rooms_ = false;
             request(Type::list, {});
         }
-        if (state_.connection == "online" && rooms_seen_ &&
-            !pending(Type::history, state_.active_room) && sync_needed_.erase(state_.active_room))
+        if (state_.connection == "online"
+            && rooms_seen_
+            && !pending(Type::history, state_.active_room)
+            && sync_needed_.erase(state_.active_room))
             synchronize(state_.active_room);
         trim();
         labels();
     }
 
-    bool key(Event event)
-    {
+    bool
+    key(Event event) {
         if (event == Event::Custom) {
             network_events();
             return true;
@@ -615,8 +636,9 @@ class Chat
             auto& value = room(state_.active_room);
             const auto page = static_cast<std::size_t>(std::max(1, screen_.dimy() / 2));
             const auto maximum = ui::maximum_scroll(state_, screen_.dimx(), screen_.dimy());
-            if (event == Event::PageUp && value.scroll >= maximum &&
-                !pending(Type::history, value.name))
+            if (event == Event::PageUp
+                && value.scroll >= maximum
+                && !pending(Type::history, value.name))
                 older_history();
             value.scroll = event == Event::PageUp ? std::min(value.scroll + page, maximum)
                            : value.scroll > page  ? value.scroll - page
@@ -629,17 +651,18 @@ class Chat
             recall(event == Event::ArrowUp ? -1 : 1);
             return true;
         }
-        if (event.is_character() && input_->Focused() &&
-            (draft_.size() + event.character().size() > 65536 ||
-             terminal_safe(event.character()) != event.character())) {
+        if (event.is_character()
+            && input_->Focused()
+            && (draft_.size() + event.character().size() > 65536
+                || terminal_safe(event.character()) != event.character())) {
             state_.notice = "消息最多 65536 字节；不接受终端控制字符。";
             return true;
         }
         return false;
     }
 
-    void widgets()
-    {
+    void
+    widgets() {
         InputOption options;
         options.multiline = false;
         options.cursor_position = &cursor_;
@@ -670,33 +693,40 @@ class Chat
             }
             auto composer = hbox({input_->Render() | flex, text("  "), send_button_->Render()});
             return ui::conversation_view(
-                state_, std::move(composer), screen_.dimx(), screen_.dimy(), rooms_->Render());
+                state_,
+                std::move(composer),
+                screen_.dimx(),
+                screen_.dimy(),
+                rooms_->Render()
+            );
         });
         component_ |= CatchEvent([this](Event event) { return key(std::move(event)); });
         input_->TakeFocus();
     }
 
-  public:
-    explicit Chat(const std::filesystem::path& directory)
-    {
+public:
+    explicit Chat(const std::filesystem::path& directory) {
         std::ifstream endpoint(directory / "endpoint");
         std::string port, token;
-        if (!std::getline(endpoint, port) || !std::getline(endpoint, token) ||
-            !std::getline(endpoint, state_.tenant) || !std::getline(endpoint, state_.user))
+        if (!std::getline(endpoint, port)
+            || !std::getline(endpoint, token)
+            || !std::getline(endpoint, state_.tenant)
+            || !std::getline(endpoint, state_.user))
             throw std::runtime_error("No usable daemon endpoint. Start chat-daemon first.");
         room("lobby");
         labels();
         widgets();
         screen_.HandlePipedInput(false);
         screen_.ForceHandleCtrlC(false);
-        session_ =
-            std::make_unique<Session>(connect_tcp("127.0.0.1", port_number(port)),
-                                      Frame{Type::hello, 1, {state_.tenant, state_.user, token}},
-                                      [this] { screen_.PostEvent(Event::Custom); });
+        session_ = std::make_unique<Session>(
+            connect_tcp("127.0.0.1", port_number(port)),
+            Frame{Type::hello, 1, {state_.tenant, state_.user, token}},
+            [this] { screen_.PostEvent(Event::Custom); }
+        );
     }
 
-    void run()
-    {
+    void
+    run() {
         screen_.Loop(component_);
         // Keep IO alive briefly for Enter immediately followed by /quit.
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -708,8 +738,8 @@ class Chat
 };
 } // namespace
 
-int main(int argc, char** argv)
-{
+int
+main(int argc, char** argv) {
     try {
         if (help_requested(argc, argv)) {
             std::cout << "chat [--state-dir PATH] [--plain]\n"

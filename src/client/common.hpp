@@ -19,21 +19,24 @@
 #include <windows.h>
 #endif
 
-namespace client
-{
+namespace client {
 using namespace chat;
-inline bool help_requested(int argc, char** argv)
-{
+
+inline bool
+help_requested(int argc, char** argv) {
     for (int i = 1; i < argc; ++i)
         if (std::string_view(argv[i]) == "--help" || std::string_view(argv[i]) == "-h")
             return true;
     return false;
 }
-inline void check_options(int argc,
-                          char** argv,
-                          std::initializer_list<std::string_view> values,
-                          std::initializer_list<std::string_view> flags = {})
-{
+
+inline void
+check_options(
+    int argc,
+    char** argv,
+    std::initializer_list<std::string_view> values,
+    std::initializer_list<std::string_view> flags = {}
+) {
     for (int i = 1; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (std::find(flags.begin(), flags.end(), arg) != flags.end())
@@ -45,21 +48,21 @@ inline void check_options(int argc,
     }
 }
 #ifdef _WIN32
-class StatePermissions
-{
+class StatePermissions {
     PACL acl_ = nullptr;
 
-    static void check(DWORD error)
-    {
+    static void
+    check(DWORD error) {
         if (error != ERROR_SUCCESS)
             throw std::runtime_error(
-                "Cannot secure Windows state for the current user (Win32 error " +
-                std::to_string(error) + ")");
+                "Cannot secure Windows state for the current user (Win32 error "
+                + std::to_string(error)
+                + ")"
+            );
     }
 
-  public:
-    StatePermissions()
-    {
+public:
+    StatePermissions() {
         HANDLE token = nullptr;
         if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
             check(GetLastError());
@@ -85,15 +88,17 @@ class StatePermissions
         access.Trustee.ptstrName = reinterpret_cast<LPWSTR>(user->User.Sid);
         check(SetEntriesInAclW(1, &access, nullptr, &acl_));
     }
+
     StatePermissions(const StatePermissions&) = delete;
     StatePermissions& operator=(const StatePermissions&) = delete;
-    ~StatePermissions()
-    {
+
+    ~StatePermissions() {
         if (acl_)
             LocalFree(acl_);
     }
-    void protect(const std::filesystem::path& path, bool required = true) const
-    {
+
+    void
+    protect(const std::filesystem::path& path, bool required = true) const {
         auto attributes = GetFileAttributesW(path.c_str());
         if (attributes == INVALID_FILE_ATTRIBUTES) {
             const auto error = GetLastError();
@@ -104,36 +109,42 @@ class StatePermissions
         if (attributes & FILE_ATTRIBUTE_REPARSE_POINT)
             throw std::runtime_error("Refusing a reparse point in private Windows state");
         auto name = path.wstring();
-        check(SetNamedSecurityInfoW(name.data(),
-                                    SE_FILE_OBJECT,
-                                    DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-                                    nullptr,
-                                    nullptr,
-                                    acl_,
-                                    nullptr));
+        check(SetNamedSecurityInfoW(
+            name.data(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            nullptr,
+            nullptr,
+            acl_,
+            nullptr
+        ));
     }
-    void protect(HANDLE file) const
-    {
-        check(SetSecurityInfo(file,
-                              SE_FILE_OBJECT,
-                              DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
-                              nullptr,
-                              nullptr,
-                              acl_,
-                              nullptr));
+
+    void
+    protect(HANDLE file) const {
+        check(SetSecurityInfo(
+            file,
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            nullptr,
+            nullptr,
+            acl_,
+            nullptr
+        ));
     }
 };
 #endif
-inline std::string random_id()
-{
+inline std::string
+random_id() {
     std::random_device source;
     std::ostringstream out;
     for (int i = 0; i < 8; ++i)
         out << std::hex << std::setw(8) << std::setfill('0') << source();
     return out.str();
 }
-inline std::string option(int argc, char** argv, std::string_view key, std::string fallback = {})
-{
+
+inline std::string
+option(int argc, char** argv, std::string_view key, std::string fallback = {}) {
     for (int i = 1; i < argc; ++i)
         if (argv[i] == key) {
             if (i + 1 == argc)
@@ -142,14 +153,16 @@ inline std::string option(int argc, char** argv, std::string_view key, std::stri
         }
     return fallback;
 }
-inline uint16_t port_number(const std::string& value)
-{
+
+inline uint16_t
+port_number(const std::string& value) {
     size_t end = 0;
     auto port = std::stoul(value, &end);
     if (end != value.size() || port > 65535)
         throw std::runtime_error("Invalid port");
     return static_cast<uint16_t>(port);
 }
+
 struct Channel {
     Socket socket = invalid_socket;
     Decoder decoder;
@@ -158,16 +171,18 @@ struct Channel {
     bool authenticated = false;
     bool closing = false;
     std::chrono::steady_clock::time_point created = std::chrono::steady_clock::now();
-    void queue(const Frame& frame)
-    {
+
+    void
+    queue(const Frame& frame) {
         auto bytes = encode(frame);
         if (queued + bytes.size() > 2 * 1024 * 1024)
             throw std::runtime_error("Slow peer exceeded output limit");
         queued += bytes.size();
         output.push_back(std::move(bytes));
     }
-    void flush()
-    {
+
+    void
+    flush() {
         while (!output.empty()) {
             auto& bytes = output.front();
             auto n = transmit(socket, std::span<const std::byte>(bytes).subspan(offset));
@@ -183,8 +198,9 @@ struct Channel {
             }
         }
     }
-    std::vector<Frame> read()
-    {
+
+    std::vector<Frame>
+    read() {
         std::byte data[32768];
         auto n = receive(socket, data);
         if (n < 0 && would_block())
@@ -194,8 +210,9 @@ struct Channel {
         return decoder.feed(std::span<const std::byte>(data, static_cast<size_t>(n)));
     }
 };
-inline std::string json_string(std::string_view value)
-{
+
+inline std::string
+json_string(std::string_view value) {
     std::string out = "\"";
     constexpr char hex[] = "0123456789abcdef";
     for (unsigned char ch : value) {
@@ -211,8 +228,9 @@ inline std::string json_string(std::string_view value)
     }
     return out + '"';
 }
-inline std::string journal_line(const Frame& frame)
-{
+
+inline std::string
+journal_line(const Frame& frame) {
     std::string out = "{\"type\":" + std::to_string(static_cast<int>(frame.type)) + ",\"fields\":[";
     for (size_t i = 0; i < frame.fields.size(); ++i) {
         if (i)
@@ -221,8 +239,9 @@ inline std::string journal_line(const Frame& frame)
     }
     return out + "]}";
 }
-inline Frame journal_frame(std::string_view line)
-{
+
+inline Frame
+journal_frame(std::string_view line) {
     auto marker = line.find(",\"fields\":[");
     if (!line.starts_with("{\"type\":") || marker == line.npos)
         throw std::runtime_error("Bad cache record");
@@ -242,7 +261,8 @@ inline Frame journal_frame(std::string_view line)
                     if (i + 4 > line.size() || line.substr(i, 2) != "00")
                         throw std::runtime_error("Bad cache escape");
                     ch = static_cast<char>(
-                        std::stoi(std::string(line.substr(i + 2, 2)), nullptr, 16));
+                        std::stoi(std::string(line.substr(i + 2, 2)), nullptr, 16)
+                    );
                     i += 4;
                 } else if (ch != '"' && ch != '\\')
                     throw std::runtime_error("Bad cache escape");

@@ -19,8 +19,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
-namespace chat
-{
+namespace chat {
 #ifdef _WIN32
 using Socket = SOCKET;
 inline constexpr Socket invalid_socket = INVALID_SOCKET;
@@ -28,9 +27,8 @@ inline constexpr Socket invalid_socket = INVALID_SOCKET;
 using Socket = int;
 inline constexpr Socket invalid_socket = -1;
 #endif
-class Network
-{
-  public:
+class Network {
+public:
     Network();
     ~Network();
     Network(const Network&) = delete;
@@ -56,9 +54,8 @@ struct Ready {
     bool failed;
 };
 
-class Poller
-{
-  public:
+class Poller {
+public:
     Poller();
     ~Poller();
     Poller(const Poller&) = delete;
@@ -67,7 +64,7 @@ class Poller
     void remove(Socket);
     std::vector<Ready> wait(int timeout_ms);
 
-  private:
+private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

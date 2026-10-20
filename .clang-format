@@ -1,11 +1,52 @@
 BasedOnStyle: LLVM
+
 IndentWidth: 4
+ContinuationIndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
 ColumnLimit: 100
-BreakBeforeBraces: Linux
-AllowShortFunctionsOnASingleLine: Empty
-AllowShortIfStatementsOnASingleLine: Never
-AllowShortLoopsOnASingleLine: false
-BinPackArguments: false
-BinPackParameters: false
+
+BreakBeforeBraces: Attach
+
+AccessModifierOffset: -4
+
+DerivePointerAlignment: false
 PointerAlignment: Left
-SortIncludes: CaseSensitive
+
+AlignAfterOpenBracket: true
+BreakAfterOpenBracketFunction: true
+BreakBeforeCloseBracketFunction: true
+
+BreakAfterReturnType: AllDefinitions
+BreakAfterAttributes: Never
+
+BinPackArguments: false
+BinPackParameters: OnePerLine
+
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+BreakAfterOpenBracketIf: true
+BreakBeforeCloseBracketIf: true
+
+BreakBeforeBinaryOperators: NonAssignment
+BreakBinaryOperations: RespectPrecedence
+
+BreakAfterOpenBracketBracedList: true
+BreakBeforeCloseBracketBracedList: true
+BinPackLongBracedList: false
+
+PackConstructorInitializers: Never
+BreakConstructorInitializers: BeforeColon
+
+BreakTemplateDeclarations: Yes
+BreakBeforeTemplateCloser: true
+
+RequiresClausePosition: OwnLineWithBrace
+IndentRequiresClause: false
+
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortBlocksOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+
+SeparateDefinitionBlocks: Always

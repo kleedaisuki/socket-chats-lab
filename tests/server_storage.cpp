@@ -6,14 +6,15 @@
 #include <vector>
 using namespace chat::server;
 
-void check(bool condition)
-{
+void
+check(bool condition) {
     if (!condition)
         throw std::runtime_error("Storage contract failed");
 }
 
-template <class F> void fails(const char* code, F&& fn)
-{
+template <class F>
+void
+fails(const char* code, F&& fn) {
     try {
         fn();
     } catch (const Failure& e) {
@@ -23,8 +24,8 @@ template <class F> void fails(const char* code, F&& fn)
     throw std::runtime_error("Expected domain failure");
 }
 
-int main()
-{
+int
+main() {
     try {
         auto db = memory_storage();
         db->join("a", "lobby");
@@ -54,7 +55,12 @@ int main()
         std::uint64_t cursor = first.message.id;
         for (unsigned i = 0; i < 400; ++i) {
             auto sent = db->send(
-                "a", i % 2 ? "alice" : "bob", "lobby", "random" + std::to_string(i), "payload");
+                "a",
+                i % 2 ? "alice" : "bob",
+                "lobby",
+                "random" + std::to_string(i),
+                "payload"
+            );
             auto requested = rng() % (sent.message.id + 1);
             cursor = std::max(cursor, requested);
             check(db->read("a", "bob", "lobby", requested) == cursor);

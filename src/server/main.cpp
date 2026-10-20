@@ -25,70 +25,72 @@
 #include <netinet/tcp.h>
 #endif
 
-namespace
-{
+namespace {
 using namespace chat;
 using namespace chat::server;
 volatile std::sig_atomic_t stopped = 0;
 
-void stop(int)
-{
+void
+stop(int) {
     stopped = 1;
 }
 
 using Clock = std::chrono::steady_clock;
 constexpr std::size_t output_limit = 4 * 1024 * 1024;
 
-std::string env(const char* name)
-{
+std::string
+env(const char* name) {
     auto* p = std::getenv(name);
     return p ? p : "";
 }
 
-bool identifier(std::string_view s)
-{
+bool
+identifier(std::string_view s) {
     return !s.empty() && s.size() <= 64 && std::all_of(s.begin(), s.end(), [](unsigned char c) {
-        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-               c == '_' || c == '-';
+        return (c >= 'a' && c <= 'z')
+               || (c >= 'A' && c <= 'Z')
+               || (c >= '0' && c <= '9')
+               || c == '_'
+               || c == '-';
     });
 }
 
-std::uint64_t number(std::string_view s)
-{
+std::uint64_t
+number(std::string_view s) {
     std::uint64_t n{};
     auto [p, e] = std::from_chars(s.data(), s.data() + s.size(), n);
-    if (s.empty() || e != std::errc{} || p != s.data() + s.size() ||
-        n > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+    if (s.empty()
+        || e != std::errc{}
+        || p != s.data() + s.size()
+        || n > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
         throw Failure("invalid", "Invalid number");
     return n;
 }
 
-void require(bool good, const char* message)
-{
+void
+require(bool good, const char* message) {
     if (!good)
         throw Failure("invalid", message);
 }
 
-bool secret_equal(std::string_view a, std::string_view b)
-{
+bool
+secret_equal(std::string_view a, std::string_view b) {
     std::size_t diff = a.size() ^ b.size();
     for (std::size_t i = 0; i < std::max(a.size(), b.size()); ++i)
-        diff |= (i < a.size() ? static_cast<unsigned char>(a[i]) : 0) ^
-                (i < b.size() ? static_cast<unsigned char>(b[i]) : 0);
+        diff |= (i < a.size() ? static_cast<unsigned char>(a[i]) : 0)
+                ^ (i < b.size() ? static_cast<unsigned char>(b[i]) : 0);
     return diff == 0;
 }
 
-class Pool
-{
+class Pool {
     std::mutex mutex_;
     std::condition_variable ready_;
     std::deque<std::function<void()>> jobs_;
     std::vector<std::thread> threads_;
     bool stop_ = false;
 
-  public:
-    explicit Pool(unsigned n)
-    {
+public:
+    explicit Pool(unsigned n) {
         for (unsigned i = 0; i < n; ++i)
             threads_.emplace_back([this] {
                 for (;;) {
@@ -106,8 +108,7 @@ class Pool
             });
     }
 
-    ~Pool()
-    {
+    ~Pool() {
         {
             std::lock_guard lock(mutex_);
             stop_ = true;
@@ -117,8 +118,8 @@ class Pool
             t.join();
     }
 
-    bool submit(std::function<void()> job)
-    {
+    bool
+    submit(std::function<void()> job) {
         std::lock_guard lock(mutex_);
         if (jobs_.size() >= 1024)
             return false;
@@ -128,13 +129,11 @@ class Pool
     }
 };
 
-class Wakeup
-{
+class Wakeup {
     Socket reader_ = invalid_socket, writer_ = invalid_socket;
 
-  public:
-    Wakeup()
-    {
+public:
+    Wakeup() {
         auto listener = listen_tcp("127.0.0.1", 0);
         try {
             writer_ = connect_tcp("127.0.0.1", local_port(listener));
@@ -144,11 +143,14 @@ class Wakeup
             nonblocking(reader_);
             nonblocking(writer_);
             int yes = 1;
-            if (setsockopt(writer_,
-                           IPPROTO_TCP,
-                           TCP_NODELAY,
-                           reinterpret_cast<const char*>(&yes),
-                           sizeof yes) != 0)
+            if (setsockopt(
+                    writer_,
+                    IPPROTO_TCP,
+                    TCP_NODELAY,
+                    reinterpret_cast<const char*>(&yes),
+                    sizeof yes
+                )
+                != 0)
                 throw std::runtime_error("Cannot configure reactor wakeup");
         } catch (...) {
             close_socket(listener);
@@ -159,8 +161,7 @@ class Wakeup
         close_socket(listener);
     }
 
-    ~Wakeup()
-    {
+    ~Wakeup() {
         close_socket(reader_);
         close_socket(writer_);
     }
@@ -168,27 +169,26 @@ class Wakeup
     Wakeup(const Wakeup&) = delete;
     Wakeup& operator=(const Wakeup&) = delete;
 
-    Socket socket() const
-    {
+    Socket
+    socket() const {
         return reader_;
     }
 
-    void notify()
-    {
+    void
+    notify() {
         const std::byte byte{1};
         (void)transmit(writer_, std::span(&byte, 1));
     }
 
-    void drain()
-    {
+    void
+    drain() {
         std::byte bytes[1024];
-        while (receive(reader_, bytes) > 0) {
-        }
+        while (receive(reader_, bytes) > 0) {}
     }
 };
 
-std::size_t frame_bytes(const Frame& f)
-{
+std::size_t
+frame_bytes(const Frame& f) {
     std::size_t size = sizeof(Frame) + 22;
     for (const auto& field : f.fields)
         size += sizeof(std::string) + 4 + field.size();
@@ -209,7 +209,8 @@ struct Session {
     std::atomic<bool> authenticated{false};
     Clock::time_point accepted = Clock::now(), active = accepted;
 
-    explicit Session(Socket s) : socket(s) {}
+    explicit Session(Socket s)
+        : socket(s) {}
 };
 
 struct Broadcast {
@@ -224,15 +225,16 @@ struct Completion {
     bool close = false;
 };
 
-Frame message_frame(const Message& m, std::uint32_t request)
-{
-    return {Type::message,
-            request,
-            {std::to_string(m.id), m.room, m.user, std::to_string(m.time), m.text, m.nonce}};
+Frame
+message_frame(const Message& m, std::uint32_t request) {
+    return {
+        Type::message,
+        request,
+        {std::to_string(m.id), m.room, m.user, std::to_string(m.time), m.text, m.nonce}
+    };
 }
 
-class Server
-{
+class Server {
     Storage& storage_;
     std::map<std::pair<std::string, std::string>, std::string> credentials_;
     Poller poller_;
@@ -250,8 +252,8 @@ class Server
     // destroyed.
     Pool pool_;
 
-    Completion execute(std::shared_ptr<Session> s, const Frame& f)
-    {
+    Completion
+    execute(std::shared_ptr<Session> s, const Frame& f) {
         Completion out{s, {}, {}, false};
         try {
             require(f.request_id != 0, "Request ID must be nonzero");
@@ -288,12 +290,17 @@ class Server
                 count(3);
                 auto r = room(0);
                 require(identifier(f.fields[1]), "Invalid nonce");
-                require(!f.fields[2].empty() && f.fields[2].size() <= 65536 &&
-                            f.fields[2].find('\0') == std::string::npos && valid_utf8(f.fields[2]),
-                        "Invalid UTF-8 message");
+                require(
+                    !f.fields[2].empty()
+                        && f.fields[2].size() <= 65536
+                        && f.fields[2].find('\0') == std::string::npos
+                        && valid_utf8(f.fields[2]),
+                    "Invalid UTF-8 message"
+                );
                 auto result = storage_.send(s->tenant, s->user, r, f.fields[1], f.fields[2]);
                 out.replies.push_back(
-                    {Type::ack, f.request_id, {std::to_string(result.message.id), f.fields[1]}});
+                    {Type::ack, f.request_id, {std::to_string(result.message.id), f.fields[1]}}
+                );
                 if (result.fresh)
                     out.broadcasts.push_back({s->tenant, message_frame(result.message, 0)});
                 break;
@@ -324,9 +331,11 @@ class Server
                 auto r = room(0);
                 auto cursor = storage_.read(s->tenant, s->user, r, number(f.fields[1]));
                 out.replies.push_back(
-                    {Type::receipt, f.request_id, {r, s->user, std::to_string(cursor)}});
+                    {Type::receipt, f.request_id, {r, s->user, std::to_string(cursor)}}
+                );
                 out.broadcasts.push_back(
-                    {s->tenant, {Type::receipt, 0, {r, s->user, std::to_string(cursor)}}});
+                    {s->tenant, {Type::receipt, 0, {r, s->user, std::to_string(cursor)}}}
+                );
                 break;
             }
             case Type::list: {
@@ -358,22 +367,22 @@ class Server
         return out;
     }
 
-    void account_input(Session& s)
-    {
+    void
+    account_input(Session& s) {
         queued_input_ -= s.input_bytes;
         s.input_bytes = s.pending_bytes + s.running_bytes + s.decoder.buffered();
         queued_input_ += s.input_bytes;
     }
 
-    void clear_pending(Session& s)
-    {
+    void
+    clear_pending(Session& s) {
         s.pending.clear();
         s.pending_bytes = 0;
         account_input(s);
     }
 
-    void close(const std::shared_ptr<Session>& s)
-    {
+    void
+    close(const std::shared_ptr<Session>& s) {
         if (s->closed)
             return;
         s->closed = true;
@@ -390,8 +399,8 @@ class Server
         sessions_.erase(s->socket);
     }
 
-    void interest(const std::shared_ptr<Session>& s)
-    {
+    void
+    interest(const std::shared_ptr<Session>& s) {
         if (s->closed)
             return;
         if (!s->output.empty()) {
@@ -406,12 +415,13 @@ class Server
         if (!s->running && s->pending.empty())
             close(s);
     }
-    void queue_encoded(const std::shared_ptr<Session>& s, WireBuffer data)
-    {
+
+    void
+    queue_encoded(const std::shared_ptr<Session>& s, WireBuffer data) {
         if (s->closed)
             return;
-        if (s->output_bytes + data->size() > output_limit ||
-            queued_output_ + data->size() > 64 * 1024 * 1024) {
+        if (s->output_bytes + data->size() > output_limit
+            || queued_output_ + data->size() > 64 * 1024 * 1024) {
             close(s);
             return;
         }
@@ -421,25 +431,28 @@ class Server
         s->output.push_back(std::move(data));
         poller_.set(s->socket, true, !s->read_eof && !s->draining);
     }
-    void queue(const std::shared_ptr<Session>& s, const Frame& f)
-    {
+
+    void
+    queue(const std::shared_ptr<Session>& s, const Frame& f) {
         if (!s->closed)
             queue_encoded(s, std::make_shared<const std::vector<std::byte>>(encode(f)));
     }
 
-    std::unique_lock<std::mutex> publication_lock(const Session& s, const Frame& f)
-    {
+    std::unique_lock<std::mutex>
+    publication_lock(const Session& s, const Frame& f) {
         if (!s.authenticated.load() || f.fields.empty())
             return {};
-        if (f.type != Type::send && f.type != Type::read && f.type != Type::history &&
-            f.type != Type::join)
+        if (f.type != Type::send
+            && f.type != Type::read
+            && f.type != Type::history
+            && f.type != Type::join)
             return {};
         auto key = s.tenant + ":" + f.fields[0];
         return std::unique_lock(room_locks_[std::hash<std::string>{}(key) % room_locks_.size()]);
     }
 
-    void schedule(const std::shared_ptr<Session>& s)
-    {
+    void
+    schedule(const std::shared_ptr<Session>& s) {
         if (s->closed || s->draining || s->running || s->pending.empty())
             return;
         auto frame = std::move(s->pending.front());
@@ -482,8 +495,8 @@ class Server
         }
     }
 
-    void completions()
-    {
+    void
+    completions() {
         std::deque<Completion> done;
         {
             std::lock_guard lock(completed_mutex_);
@@ -521,8 +534,8 @@ class Server
         }
     }
 
-    void accept_connections()
-    {
+    void
+    accept_connections() {
         for (unsigned i = 0; i < 64; ++i) {
             auto fd = ::accept(listener_, nullptr, nullptr);
             if (fd == invalid_socket) {
@@ -546,8 +559,8 @@ class Server
         }
     }
 
-    void readable(const std::shared_ptr<Session>& s)
-    {
+    void
+    readable(const std::shared_ptr<Session>& s) {
         if (s->draining || s->read_eof)
             return;
         std::byte data[16384];
@@ -581,8 +594,9 @@ class Server
                 s->pending.push_back(std::move(f));
             }
             account_input(*s);
-            if (s->pending.size() > 64 || s->pending_bytes > 2 * 1024 * 1024 ||
-                queued_input_ > 64 * 1024 * 1024) {
+            if (s->pending.size() > 64
+                || s->pending_bytes > 2 * 1024 * 1024
+                || queued_input_ > 64 * 1024 * 1024) {
                 close(s);
                 return;
             }
@@ -590,8 +604,8 @@ class Server
         }
     }
 
-    void writable(const std::shared_ptr<Session>& s)
-    {
+    void
+    writable(const std::shared_ptr<Session>& s) {
         std::size_t budget = 256 * 1024;
         while (!s->output.empty() && budget) {
             const auto& data = *s->output.front();
@@ -614,10 +628,11 @@ class Server
         interest(s);
     }
 
-  public:
+public:
     Server(Storage& storage, Socket listener, unsigned threads)
-        : storage_(storage), listener_(listener), pool_(threads)
-    {
+        : storage_(storage),
+          listener_(listener),
+          pool_(threads) {
         auto spec = env("CHAT_CREDENTIALS");
         std::size_t pos = 0;
         while (pos < spec.size()) {
@@ -630,8 +645,11 @@ class Server
             auto tenant = entry.substr(0, first),
                  user = entry.substr(first + 1, second - first - 1),
                  token = entry.substr(second + 1);
-            if (!identifier(tenant) || !identifier(user) || token.empty() || token.size() > 1024 ||
-                !valid_utf8(token))
+            if (!identifier(tenant)
+                || !identifier(user)
+                || token.empty()
+                || token.size() > 1024
+                || !valid_utf8(token))
                 throw std::runtime_error("Invalid CHAT_CREDENTIALS entry");
             if (!credentials_.emplace(std::pair{tenant, user}, token).second)
                 throw std::runtime_error("Duplicate CHAT_CREDENTIALS identity");
@@ -646,8 +664,7 @@ class Server
         poller_.set(wakeup_.socket());
     }
 
-    ~Server()
-    {
+    ~Server() {
         {
             std::lock_guard lock(completed_mutex_);
             shutting_down_ = true;
@@ -664,8 +681,8 @@ class Server
         close_socket(listener_);
     }
 
-    void run()
-    {
+    void
+    run() {
         while (!stopped) {
             completions();
             for (auto ready : poller_.wait(1000)) {
@@ -698,8 +715,8 @@ class Server
             auto now = Clock::now();
             std::vector<std::shared_ptr<Session>> expired;
             for (auto& [fd, s] : sessions_)
-                if ((!s->authenticated.load() && now - s->accepted > std::chrono::seconds(10)) ||
-                    now - s->active > std::chrono::minutes(10))
+                if ((!s->authenticated.load() && now - s->accepted > std::chrono::seconds(10))
+                    || now - s->active > std::chrono::minutes(10))
                     expired.push_back(s);
             for (auto& s : expired)
                 close(s);
@@ -708,8 +725,8 @@ class Server
 };
 } // namespace
 
-int main(int argc, char** argv)
-{
+int
+main(int argc, char** argv) {
     try {
         std::string host = "127.0.0.1";
         unsigned port = 7777, threads = std::clamp(std::thread::hardware_concurrency(), 2u, 16u);
@@ -744,8 +761,10 @@ int main(int argc, char** argv)
                 throw std::runtime_error("Unknown option: " + arg);
         }
         if (host != "127.0.0.1" && host != "::1" && host != "localhost" && !allow)
-            throw std::runtime_error("Remote bind requires --allow-plaintext; use an SSH tunnel "
-                                     "for secure remote access");
+            throw std::runtime_error(
+                "Remote bind requires --allow-plaintext; use an SSH tunnel "
+                "for secure remote access"
+            );
         auto dsn = env("CHAT_DB_DSN");
         if (!memory && dsn.empty())
             throw std::runtime_error("CHAT_DB_DSN is required; --memory is explicitly ephemeral");

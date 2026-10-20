@@ -12,19 +12,20 @@
 #include <unistd.h>
 #endif
 
-namespace
-{
+namespace {
 using namespace client;
-class PlainInput
-{
-  public:
+
+class PlainInput {
+public:
     explicit PlainInput(bool) {}
-    bool interactive() const
-    {
+
+    bool
+    interactive() const {
         return false;
     }
-    std::optional<std::string> read()
-    {
+
+    std::optional<std::string>
+    read() {
 #ifdef _WIN32
         auto input = GetStdHandle(STD_INPUT_HANDLE);
         DWORD available = 0;
@@ -53,8 +54,9 @@ class PlainInput
 #endif
     }
 };
-std::string timestamp(const std::string& value)
-{
+
+std::string
+timestamp(const std::string& value) {
     try {
         auto seconds = static_cast<std::time_t>(std::stoll(value) / 1000);
         std::tm tm{};
@@ -70,8 +72,8 @@ std::string timestamp(const std::string& value)
         return "?";
     }
 }
-class Tui
-{
+
+class Tui {
     Network network_;
     PlainInput terminal_;
     Channel channel_;
@@ -85,14 +87,19 @@ class Tui
     bool line_overflow_ = false;
     int escape_bytes_ = 0;
 
-    void prompt()
-    {
+    void
+    prompt() {
         if (terminal_.interactive())
-            std::cout << "\r\033[2K\033[36m[" << terminal_safe(room_) << "] > \033[0m"
-                      << terminal_safe(line_) << std::flush;
+            std::cout
+                << "\r\033[2K\033[36m["
+                << terminal_safe(room_)
+                << "] > \033[0m"
+                << terminal_safe(line_)
+                << std::flush;
     }
-    void print(const std::string& text, const char* color = "\033[37m")
-    {
+
+    void
+    print(const std::string& text, const char* color = "\033[37m") {
         if (terminal_.interactive())
             std::cout << "\r\033[2K" << color << text << "\033[0m\n";
         else
@@ -100,8 +107,9 @@ class Tui
         std::cout.flush();
         prompt();
     }
-    uint32_t send(Type type, std::vector<std::string> fields)
-    {
+
+    uint32_t
+    send(Type type, std::vector<std::string> fields) {
         auto id = request_++;
         if (request_ == 0)
             request_ = 2;
@@ -110,14 +118,18 @@ class Tui
         poller_.set(channel_.socket, true);
         return id;
     }
-    void help()
-    {
+
+    void
+    help() {
         print("Commands: /rooms | /join ROOM | /history [AFTER_ID] | /read | /quit | /help");
-        print("Type a message to send. /read explicitly marks displayed messages read; receipt is "
-              "never automatic.");
+        print(
+            "Type a message to send. /read explicitly marks displayed messages read; receipt is "
+            "never automatic."
+        );
     }
-    void command(std::string text)
-    {
+
+    void
+    command(std::string text) {
         if (text.empty())
             return;
         if (!valid_utf8(text)) {
@@ -165,12 +177,16 @@ class Tui
         }
         send(Type::send, {room_, random_id(), std::move(text)});
     }
-    void event(const Frame& frame)
-    {
+
+    void
+    event(const Frame& frame) {
         auto& f = frame.fields;
-        if (frame.type == Type::ack || frame.type == Type::rooms || frame.type == Type::error ||
-            frame.type == Type::receipt || frame.type == Type::pong ||
-            frame.type == Type::history_end)
+        if (frame.type == Type::ack
+            || frame.type == Type::rooms
+            || frame.type == Type::error
+            || frame.type == Type::receipt
+            || frame.type == Type::pong
+            || frame.type == Type::history_end)
             outstanding_.erase(frame.request_id);
         if (frame.type == Type::welcome) {
             print("Attached as " + terminal_safe(user_) + ". /help for commands.");
@@ -184,15 +200,25 @@ class Tui
         }
         if (frame.type == Type::message && f.size() >= 6) {
             std::string origin = cache_ ? "cached" : frame.request_id ? "history" : "live";
-            print("[" + timestamp(f[3]) + "] [" + origin + "] #" + terminal_safe(f[1]) + " " +
-                      terminal_safe(f[2]) + " · " + terminal_safe(f[0]) + ": " +
-                      terminal_safe(f[4]),
-                  "\033[32m");
+            print(
+                "["
+                    + timestamp(f[3])
+                    + "] ["
+                    + origin
+                    + "] #"
+                    + terminal_safe(f[1])
+                    + " "
+                    + terminal_safe(f[2])
+                    + " · "
+                    + terminal_safe(f[0])
+                    + ": "
+                    + terminal_safe(f[4]),
+                "\033[32m"
+            );
             try {
                 displayed_[f[1]] =
                     std::max(displayed_[f[1]], static_cast<uint64_t>(std::stoull(f[0])));
-            } catch (...) {
-            }
+            } catch (...) {}
             return;
         }
         if (frame.type == Type::rooms) {
@@ -200,15 +226,26 @@ class Tui
             for (size_t i = 0; i + 2 < f.size(); i += 3) {
                 auto name = terminal_safe(f[i]);
                 auto width = display_width(name);
-                print(name + std::string(width < 29 ? 29 - width : 1, ' ') +
-                      terminal_safe(f[i + 1]) + "    " + terminal_safe(f[i + 2]));
+                print(
+                    name
+                    + std::string(width < 29 ? 29 - width : 1, ' ')
+                    + terminal_safe(f[i + 1])
+                    + "    "
+                    + terminal_safe(f[i + 2])
+                );
             }
             return;
         }
         if (frame.type == Type::receipt && f.size() >= 3) {
-            print("[read] #" + terminal_safe(f[0]) + " " + terminal_safe(f[1]) + " through " +
-                      terminal_safe(f[2]),
-                  "\033[35m");
+            print(
+                "[read] #"
+                    + terminal_safe(f[0])
+                    + " "
+                    + terminal_safe(f[1])
+                    + " through "
+                    + terminal_safe(f[2]),
+                "\033[35m"
+            );
             return;
         }
         if (frame.type == Type::history_end) {
@@ -233,8 +270,9 @@ class Tui
                 print("[sent] " + terminal_safe(f[0]));
         }
     }
-    void input(std::string_view bytes)
-    {
+
+    void
+    input(std::string_view bytes) {
         if (bytes.empty())
             return;
         for (unsigned char ch : bytes) {
@@ -289,23 +327,27 @@ class Tui
         prompt();
     }
 
-  public:
+public:
     Tui(int argc, char** argv)
         : terminal_([&] {
               for (int i = 1; i < argc; ++i)
                   if (std::string_view(argv[i]) == "--plain")
                       return true;
               return false;
-          }())
-    {
+          }()) {
         auto dir = std::filesystem::path(option(argc, argv, "--state-dir", ".chat"));
         std::ifstream endpoint(dir / "endpoint");
         std::string port, token, tenant;
-        if (!std::getline(endpoint, port) || !std::getline(endpoint, token) ||
-            !std::getline(endpoint, tenant) || !std::getline(endpoint, user_))
-            throw std::runtime_error("No usable daemon endpoint. Start chat-daemon --tenant TENANT "
-                                     "--user USER --state-dir " +
-                                     dir.string() + " with CHAT_TOKEN set.");
+        if (!std::getline(endpoint, port)
+            || !std::getline(endpoint, token)
+            || !std::getline(endpoint, tenant)
+            || !std::getline(endpoint, user_))
+            throw std::runtime_error(
+                "No usable daemon endpoint. Start chat-daemon --tenant TENANT "
+                "--user USER --state-dir "
+                + dir.string()
+                + " with CHAT_TOKEN set."
+            );
         channel_.socket = connect_tcp("127.0.0.1", port_number(port));
         nonblocking(channel_.socket);
         channel_.queue({Type::hello, 1, {tenant, user_, token}});
@@ -315,13 +357,14 @@ class Tui
             help();
         }
     }
-    ~Tui()
-    {
+
+    ~Tui() {
         if (channel_.socket != invalid_socket)
             close_socket(channel_.socket);
     }
-    void run()
-    {
+
+    void
+    run() {
         prompt();
         while (running_) {
             for (auto ready : poller_.wait(25)) {
@@ -344,8 +387,8 @@ class Tui
         }
         // Flush complete commands before exiting a piped session.
         auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-        while ((!channel_.output.empty() || !outstanding_.empty()) &&
-               std::chrono::steady_clock::now() < deadline) {
+        while ((!channel_.output.empty() || !outstanding_.empty())
+               && std::chrono::steady_clock::now() < deadline) {
             for (auto ready : poller_.wait(25)) {
                 if (ready.failed)
                     return;
@@ -360,8 +403,9 @@ class Tui
     }
 };
 } // namespace
-int run_plain(int argc, char** argv)
-{
+
+int
+run_plain(int argc, char** argv) {
     try {
         if (help_requested(argc, argv)) {
             std::cout

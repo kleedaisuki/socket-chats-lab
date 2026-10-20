@@ -1,17 +1,15 @@
 #include "chat/utf8.hpp"
 #include <cstdint>
 
-namespace chat
-{
-namespace
-{
+namespace chat {
+namespace {
 struct Rune {
     std::uint32_t value;
     std::size_t size;
 };
 
-Rune next(std::string_view s)
-{
+Rune
+next(std::string_view s) {
     if (s.empty())
         return {0, 0};
     auto c = static_cast<unsigned char>(s[0]);
@@ -30,39 +28,57 @@ Rune next(std::string_view s)
             return {0xfffd, 0};
         cp = (cp << 6) | (b & 63);
     }
-    if ((n == 2 && cp < 128) || (n == 3 && cp < 2048) || (n == 4 && cp < 65536) || cp > 0x10ffff ||
-        (cp >= 0xd800 && cp <= 0xdfff))
+    if ((n == 2 && cp < 128)
+        || (n == 3 && cp < 2048)
+        || (n == 4 && cp < 65536)
+        || cp > 0x10ffff
+        || (cp >= 0xd800 && cp <= 0xdfff))
         return {0xfffd, 0};
     return {cp, n};
 }
 
-bool unsafe(std::uint32_t c)
-{
-    return c < 32 || (c >= 127 && c <= 159) || c == 0x2028 || c == 0x2029 ||
-           (c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069);
+bool
+unsafe(std::uint32_t c) {
+    return c < 32
+           || (c >= 127 && c <= 159)
+           || c == 0x2028
+           || c == 0x2029
+           || (c >= 0x202a && c <= 0x202e)
+           || (c >= 0x2066 && c <= 0x2069);
 }
 
-bool zero(std::uint32_t c)
-{
-    return (c >= 0x300 && c <= 0x36f) || (c >= 0x1ab0 && c <= 0x1aff) ||
-           (c >= 0x1dc0 && c <= 0x1dff) || (c >= 0x20d0 && c <= 0x20ff) ||
-           (c >= 0xfe00 && c <= 0xfe0f) || (c >= 0xfe20 && c <= 0xfe2f) || c == 0x200d ||
-           (c >= 0xe0100 && c <= 0xe01ef);
+bool
+zero(std::uint32_t c) {
+    return (c >= 0x300 && c <= 0x36f)
+           || (c >= 0x1ab0 && c <= 0x1aff)
+           || (c >= 0x1dc0 && c <= 0x1dff)
+           || (c >= 0x20d0 && c <= 0x20ff)
+           || (c >= 0xfe00 && c <= 0xfe0f)
+           || (c >= 0xfe20 && c <= 0xfe2f)
+           || c == 0x200d
+           || (c >= 0xe0100 && c <= 0xe01ef);
 }
 
-bool wide(std::uint32_t c)
-{
-    return c >= 0x1100 && (c <= 0x115f || c == 0x2329 || c == 0x232a ||
-                           (c >= 0x2e80 && c <= 0xa4cf && c != 0x303f) ||
-                           (c >= 0xac00 && c <= 0xd7a3) || (c >= 0xf900 && c <= 0xfaff) ||
-                           (c >= 0xfe10 && c <= 0xfe19) || (c >= 0xfe30 && c <= 0xfe6f) ||
-                           (c >= 0xff00 && c <= 0xff60) || (c >= 0xffe0 && c <= 0xffe6) ||
-                           (c >= 0x1f300 && c <= 0x1faff) || (c >= 0x20000 && c <= 0x3fffd));
+bool
+wide(std::uint32_t c) {
+    return c >= 0x1100
+           && (c <= 0x115f
+               || c == 0x2329
+               || c == 0x232a
+               || (c >= 0x2e80 && c <= 0xa4cf && c != 0x303f)
+               || (c >= 0xac00 && c <= 0xd7a3)
+               || (c >= 0xf900 && c <= 0xfaff)
+               || (c >= 0xfe10 && c <= 0xfe19)
+               || (c >= 0xfe30 && c <= 0xfe6f)
+               || (c >= 0xff00 && c <= 0xff60)
+               || (c >= 0xffe0 && c <= 0xffe6)
+               || (c >= 0x1f300 && c <= 0x1faff)
+               || (c >= 0x20000 && c <= 0x3fffd));
 }
 } // namespace
 
-bool valid_utf8(std::string_view s)
-{
+bool
+valid_utf8(std::string_view s) {
     while (!s.empty()) {
         auto r = next(s);
         if (!r.size)
@@ -72,8 +88,8 @@ bool valid_utf8(std::string_view s)
     return true;
 }
 
-std::string terminal_safe(std::string_view s)
-{
+std::string
+terminal_safe(std::string_view s) {
     std::string out;
     while (!s.empty()) {
         auto r = next(s);
@@ -91,8 +107,8 @@ std::string terminal_safe(std::string_view s)
     return out;
 }
 
-std::size_t display_width(std::string_view s)
-{
+std::size_t
+display_width(std::string_view s) {
     std::size_t width = 0;
     while (!s.empty()) {
         auto r = next(s);

@@ -8,16 +8,16 @@
 #include <thread>
 using namespace chat;
 
-namespace
-{
-void check(bool yes)
-{
+namespace {
+void
+check(bool yes) {
     if (!yes)
         throw std::runtime_error("test assertion failed");
 }
 
-template <class F> void rejects(F&& f)
-{
+template <class F>
+void
+rejects(F&& f) {
     bool thrown = false;
     try {
         f();
@@ -27,19 +27,19 @@ template <class F> void rejects(F&& f)
     check(thrown);
 }
 
-void same(const Frame& a, const Frame& b)
-{
+void
+same(const Frame& a, const Frame& b) {
     check(a.type == b.type && a.request_id == b.request_id && a.fields == b.fields);
 }
 
-void set32(std::vector<std::byte>& b, std::size_t p, std::uint32_t n)
-{
+void
+set32(std::vector<std::byte>& b, std::size_t p, std::uint32_t n) {
     for (unsigned i = 0; i < 4; ++i)
         b[p + i] = std::byte((n >> ((3 - i) * 8)) & 255);
 }
 
-void codec()
-{
+void
+codec() {
     std::mt19937 random(42);
     for (unsigned trial = 0; trial < 600; ++trial) {
         Frame f{Type::message, static_cast<std::uint32_t>(random()), {}};
@@ -92,8 +92,7 @@ void codec()
             auto ignored = mutation_decoder.feed(mutated);
             if (mutation_decoder.buffered() > max_payload + 20)
                 throw std::logic_error("decoder exceeded bounded buffer");
-        } catch (const std::runtime_error&) {
-        }
+        } catch (const std::runtime_error&) {}
     }
     auto hello = encode({Type::hello, 1, {"tenant", "user", std::string(1000, 'a')}});
     check(hello[7] == std::byte{0});
@@ -102,7 +101,13 @@ void codec()
     rejects([] { encode({Type::send, 1, std::vector<std::string>(129)}); });
     auto normal = encode({Type::message, 1, {"abc"}}, false);
     for (auto [offset, value] : std::vector<std::pair<std::size_t, unsigned>>{
-             {0, 0}, {4, 2}, {5, 0}, {5, 17}, {6, 1}, {7, 2}}) {
+             {0, 0},
+             {4, 2},
+             {5, 0},
+             {5, 17},
+             {6, 1},
+             {7, 2}
+         }) {
         auto bad = normal;
         bad[offset] = std::byte(value);
         rejects([&] {
@@ -153,12 +158,13 @@ void codec()
             out.push_back(std::byte(v));
         return out;
     };
-    for (auto bad : {compressed({128, 0, 0}, 3),
-                     compressed({128, 0, 1}, 3),
-                     compressed({127, 0}, 128),
-                     compressed({128, 0}, 3),
-                     compressed({0, 0}, 3),
-                     compressed({1, 0, 0, 255, 0, 1}, 2)})
+    for (auto bad :
+         {compressed({128, 0, 0}, 3),
+          compressed({128, 0, 1}, 3),
+          compressed({127, 0}, 128),
+          compressed({128, 0}, 3),
+          compressed({0, 0}, 3),
+          compressed({1, 0, 0, 255, 0, 1}, 2)})
         rejects([&] {
             Decoder x;
             x.feed(bad);
@@ -171,8 +177,8 @@ void codec()
     });
 }
 
-void unicode()
-{
+void
+unicode() {
     check(valid_utf8("hello"));
     check(valid_utf8("中文😀"));
     check(valid_utf8(std::string("a\0b", 3)));
@@ -182,14 +188,17 @@ void unicode()
     check(display_width("e\xcc\x81") == 1);
     check(display_width("😀") == 2);
     auto safe = terminal_safe("\x1b[31m中文\n\x7f\xc2\x9b\xe2\x80\xae");
-    check(safe.find('\x1b') == std::string::npos && safe.find('\n') == std::string::npos &&
-          valid_utf8(safe));
+    check(
+        safe.find('\x1b') == std::string::npos
+        && safe.find('\n') == std::string::npos
+        && valid_utf8(safe)
+    );
     check(terminal_safe("中文😀") == "中文😀");
     check(valid_utf8(terminal_safe("\xff")));
 }
 
-void sockets()
-{
+void
+sockets() {
     Network runtime;
     auto listener = listen_tcp("127.0.0.1", 0);
     auto port = local_port(listener);
@@ -226,8 +235,8 @@ void sockets()
 }
 } // namespace
 
-int main()
-{
+int
+main() {
     try {
         codec();
         unicode();

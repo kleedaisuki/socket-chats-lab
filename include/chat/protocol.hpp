@@ -5,8 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace chat
-{
+namespace chat {
 enum class Type : std::uint8_t {
     hello = 1,
     welcome = 2,
@@ -35,19 +34,18 @@ struct Frame {
 inline constexpr std::size_t max_payload = 1024 * 1024;
 std::vector<std::byte> encode(const Frame&, bool compress = true);
 
-class Decoder
-{
-  public:
+class Decoder {
+public:
     std::vector<Frame> feed(std::span<const std::byte>);
 
-    std::size_t buffered() const
-    {
+    std::size_t
+    buffered() const {
         return bytes_.size();
     }
 
     std::size_t bytes_needed() const;
 
-  private:
+private:
     std::vector<std::byte> bytes_;
 };
 } // namespace chat

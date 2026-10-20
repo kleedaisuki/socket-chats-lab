@@ -9,20 +9,21 @@
 #include <stdexcept>
 #include <thread>
 
-namespace
-{
+namespace {
 using namespace chat;
 using namespace std::chrono_literals;
-void require(bool value, const char* message)
-{
+
+void
+require(bool value, const char* message) {
     if (!value)
         throw std::runtime_error(message);
 }
+
 struct Fixture {
     Network network;
     Socket client = invalid_socket, peer = invalid_socket;
-    Fixture()
-    {
+
+    Fixture() {
         auto listener = listen_tcp("127.0.0.1", 0);
         try {
             client = connect_tcp("127.0.0.1", local_port(listener));
@@ -36,70 +37,82 @@ struct Fixture {
         }
         close_socket(listener);
     }
-    ~Fixture()
-    {
+
+    ~Fixture() {
         close_socket(client);
         close_socket(peer);
     }
-    Socket transfer()
-    {
+
+    Socket
+    transfer() {
         auto result = client;
         client = invalid_socket;
         return result;
     }
-    void close_peer()
-    {
+
+    void
+    close_peer() {
         close_socket(peer);
         peer = invalid_socket;
     }
 };
-class Events
-{
+
+class Events {
     std::mutex mutex;
     std::condition_variable ready;
     std::size_t count = 0;
 
-  public:
-    void notify()
-    {
+public:
+    void
+    notify() {
         std::lock_guard lock(mutex);
         ++count;
         ready.notify_all();
     }
-    std::size_t notifications()
-    {
+
+    std::size_t
+    notifications() {
         std::lock_guard lock(mutex);
         return count;
     }
-    void wait(std::size_t after)
-    {
+
+    void
+    wait(std::size_t after) {
         std::unique_lock lock(mutex);
-        require(ready.wait_for(lock, 3s, [&] { return count > after; }),
-                "session notification timed out");
+        require(
+            ready.wait_for(lock, 3s, [&] { return count > after; }),
+            "session notification timed out"
+        );
     }
 };
-Frame hello()
-{
+
+Frame
+hello() {
     return {Type::hello, 1, {"tenant", "user", "secret"}};
 }
 
-void wakeup_and_coalescing()
-{
+void
+wakeup_and_coalescing() {
     Fixture fixture;
     Events events;
     client::Session session(fixture.transfer(), hello(), [&] { events.notify(); });
     Decoder decoder;
     auto greeting = receive_frame(fixture.peer, decoder);
-    require(greeting.type == Type::hello && greeting.fields == hello().fields,
-            "initial hello lost");
+    require(
+        greeting.type == Type::hello && greeting.fields == hello().fields,
+        "initial hello lost"
+    );
     std::this_thread::sleep_for(40ms);
     require(events.notifications() == 0, "idle transport must not notify UI");
     const auto begin = std::chrono::steady_clock::now();
     session.send({Type::ping, 2, {}});
-    require(receive_frame(fixture.peer, decoder, 500).request_id == 2,
-            "queued request did not wake poller");
+    require(
+        receive_frame(fixture.peer, decoder, 500).request_id == 2,
+        "queued request did not wake poller"
+    );
     const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(
-                            std::chrono::steady_clock::now() - begin)
+                            std::chrono::steady_clock::now() - begin
+    )
                             .count();
     std::cout << "idle-wakeup request latency: " << micros << " us\n";
     std::vector<std::byte> burst;
@@ -128,10 +141,13 @@ void wakeup_and_coalescing()
     fixture.close_peer();
     events.wait(before_close);
     frames = session.take();
-    require(frames.size() == 1 && frames[0].type == Type::status &&
-                frames[0].fields ==
-                    std::vector<std::string>{"daemon-offline", "Local daemon disconnected"},
-            "disconnect must produce one actionable offline event");
+    require(
+        frames.size() == 1
+            && frames[0].type == Type::status
+            && frames[0].fields
+                   == std::vector<std::string>{"daemon-offline", "Local daemon disconnected"},
+        "disconnect must produce one actionable offline event"
+    );
     bool rejected = false;
     try {
         session.send({Type::ping, 3, {}});
@@ -143,8 +159,8 @@ void wakeup_and_coalescing()
     require(session.take().empty(), "disconnect event repeated");
 }
 
-void idle_teardown()
-{
+void
+idle_teardown() {
     Fixture fixture;
     std::atomic<int> notifications = 0;
     auto session =
@@ -160,14 +176,17 @@ void idle_teardown()
     require(count == notifications.load(), "notification outlived Session");
 }
 
-void constructor_ownership()
-{
+void
+constructor_ownership() {
     Fixture fixture;
     auto transferred = fixture.transfer();
     bool rejected = false;
     try {
         client::Session session(
-            transferred, {Type::hello, 1, {std::string(2 * 1024 * 1024, 'a')}}, [] {});
+            transferred,
+            {Type::hello, 1, {std::string(2 * 1024 * 1024, 'a')}},
+            [] {}
+        );
     } catch (const std::exception&) {
         rejected = true;
     }
@@ -182,8 +201,8 @@ void constructor_ownership()
     require(closed, "failed construction leaked transferred socket");
 }
 
-void output_backpressure()
-{
+void
+output_backpressure() {
     Fixture fixture;
     client::Session session(fixture.transfer(), hello(), [] {});
     Decoder decoder;
@@ -205,8 +224,8 @@ void output_backpressure()
     require(rejected, "stalled peer must enforce bounded output, including active partial writes");
 }
 
-void fragmented_invalid_protocol()
-{
+void
+fragmented_invalid_protocol() {
     Fixture fixture;
     Events events;
     client::Session session(fixture.transfer(), hello(), [&] { events.notify(); });
@@ -214,21 +233,28 @@ void fragmented_invalid_protocol()
     (void)receive_frame(fixture.peer, decoder);
     auto bytes = encode({Type::pong, 2, {}}, false);
     bytes[5] = std::byte{255};
-    require(transmit(fixture.peer, std::span<const std::byte>(bytes).first(10)) == 10,
-            "fragment write failed");
+    require(
+        transmit(fixture.peer, std::span<const std::byte>(bytes).first(10)) == 10,
+        "fragment write failed"
+    );
     std::this_thread::sleep_for(20ms);
     require(events.notifications() == 0, "partial bytes must not trigger UI notification");
-    require(transmit(fixture.peer, std::span<const std::byte>(bytes).subspan(10)) > 0,
-            "fragment completion failed");
+    require(
+        transmit(fixture.peer, std::span<const std::byte>(bytes).subspan(10)) > 0,
+        "fragment completion failed"
+    );
     events.wait(0);
     auto frames = session.take();
-    require(frames.size() == 1 && frames[0].type == Type::status &&
-                frames[0].fields[0] == "daemon-offline",
-            "unknown protocol type must disconnect rather than escape strict decoder");
+    require(
+        frames.size() == 1
+            && frames[0].type == Type::status
+            && frames[0].fields[0] == "daemon-offline",
+        "unknown protocol type must disconnect rather than escape strict decoder"
+    );
 }
 
-void input_backpressure()
-{
+void
+input_backpressure() {
     Fixture fixture;
     Events events;
     client::Session session(fixture.transfer(), hello(), [&] { events.notify(); });
@@ -263,8 +289,10 @@ void input_backpressure()
                 continue;
             }
             for (auto& frame : frames) {
-                require(frame.type == Type::pong && frame.request_id == 10000 + received,
-                        "backpressure must preserve all frames in FIFO order");
+                require(
+                    frame.type == Type::pong && frame.request_id == 10000 + received,
+                    "backpressure must preserve all frames in FIFO order"
+                );
                 ++received;
             }
         }
@@ -278,8 +306,9 @@ void input_backpressure()
         std::rethrow_exception(failure);
 }
 } // namespace
-int main()
-{
+
+int
+main() {
     try {
         wakeup_and_coalescing();
         idle_teardown();

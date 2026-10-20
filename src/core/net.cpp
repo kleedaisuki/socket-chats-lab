@@ -15,18 +15,17 @@
 #include <sys/epoll.h>
 #define CHAT_EPOLL 1
 #endif
-namespace chat
-{
-namespace
-{
-[[noreturn]] void fail(const char* operation)
-{
-    throw std::runtime_error(std::string(operation) + ": socket error " +
-                             std::to_string(last_socket_error()));
+namespace chat {
+namespace {
+[[noreturn]] void
+fail(const char* operation) {
+    throw std::runtime_error(
+        std::string(operation) + ": socket error " + std::to_string(last_socket_error())
+    );
 }
 
-int poll_one(Socket s, bool write, int timeout)
-{
+int
+poll_one(Socket s, bool write, int timeout) {
 #ifdef _WIN32
     WSAPOLLFD fd{s, static_cast<SHORT>(write ? POLLOUT : POLLIN), 0};
     return WSAPoll(&fd, 1, timeout);
@@ -36,8 +35,8 @@ int poll_one(Socket s, bool write, int timeout)
 #endif
 }
 
-void blocking(Socket s)
-{
+void
+blocking(Socket s) {
 #ifdef _WIN32
     u_long mode = 0;
     if (ioctlsocket(s, FIONBIO, &mode))
@@ -50,8 +49,7 @@ void blocking(Socket s)
 }
 } // namespace
 
-Network::Network()
-{
+Network::Network() {
 #ifdef _WIN32
     WSADATA data{};
     if (WSAStartup(MAKEWORD(2, 2), &data))
@@ -59,15 +57,14 @@ Network::Network()
 #endif
 }
 
-Network::~Network()
-{
+Network::~Network() {
 #ifdef _WIN32
     WSACleanup();
 #endif
 }
 
-int last_socket_error()
-{
+int
+last_socket_error() {
 #ifdef _WIN32
     return WSAGetLastError();
 #else
@@ -75,8 +72,8 @@ int last_socket_error()
 #endif
 }
 
-bool would_block()
-{
+bool
+would_block() {
     auto e = last_socket_error();
 #ifdef _WIN32
     return e == WSAEWOULDBLOCK || e == WSAEINPROGRESS || e == WSAEINTR;
@@ -85,8 +82,8 @@ bool would_block()
 #endif
 }
 
-void close_socket(Socket s)
-{
+void
+close_socket(Socket s) {
     if (s == invalid_socket)
         return;
 #ifdef _WIN32
@@ -96,8 +93,8 @@ void close_socket(Socket s)
 #endif
 }
 
-void nonblocking(Socket s)
-{
+void
+nonblocking(Socket s) {
 #ifdef SO_NOSIGPIPE
     // Accepted sockets cannot portably rely on listener option inheritance.
     int no_sigpipe = 1;
@@ -115,10 +112,9 @@ void nonblocking(Socket s)
 #endif
 }
 
-namespace
-{
-Socket open_tcp(std::string_view host, std::uint16_t port, int backlog, bool listening)
-{
+namespace {
+Socket
+open_tcp(std::string_view host, std::uint16_t port, int backlog, bool listening) {
     addrinfo hints{};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -148,16 +144,18 @@ Socket open_tcp(std::string_view host, std::uint16_t port, int backlog, bool lis
         if (listening) {
             int yes = 1;
 #ifdef _WIN32
-            setsockopt(s,
-                       SOL_SOCKET,
-                       SO_EXCLUSIVEADDRUSE,
-                       reinterpret_cast<const char*>(&yes),
-                       sizeof yes);
+            setsockopt(
+                s,
+                SOL_SOCKET,
+                SO_EXCLUSIVEADDRUSE,
+                reinterpret_cast<const char*>(&yes),
+                sizeof yes
+            );
 #else
             setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof yes);
 #endif
-            success = bind(s, a->ai_addr, static_cast<int>(a->ai_addrlen)) == 0 &&
-                      listen(s, backlog) == 0;
+            success = bind(s, a->ai_addr, static_cast<int>(a->ai_addrlen)) == 0
+                      && listen(s, backlog) == 0;
         } else {
             try {
                 nonblocking(s);
@@ -176,9 +174,8 @@ Socket open_tcp(std::string_view host, std::uint16_t port, int backlog, bool lis
                 socklen_t len = sizeof error;
 #endif
                 success =
-                    getsockopt(s, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &len) ==
-                        0 &&
-                    error == 0;
+                    getsockopt(s, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &len) == 0
+                    && error == 0;
             }
             if (success) {
                 try {
@@ -197,18 +194,18 @@ Socket open_tcp(std::string_view host, std::uint16_t port, int backlog, bool lis
 }
 } // namespace
 
-Socket listen_tcp(std::string_view h, std::uint16_t p, int b)
-{
+Socket
+listen_tcp(std::string_view h, std::uint16_t p, int b) {
     return open_tcp(h, p, b, true);
 }
 
-Socket connect_tcp(std::string_view h, std::uint16_t p)
-{
+Socket
+connect_tcp(std::string_view h, std::uint16_t p) {
     return open_tcp(h, p, 0, false);
 }
 
-std::uint16_t local_port(Socket s)
-{
+std::uint16_t
+local_port(Socket s) {
     sockaddr_storage addr{};
 #ifdef _WIN32
     int len = sizeof addr;
@@ -222,29 +219,33 @@ std::uint16_t local_port(Socket s)
     return ntohs(reinterpret_cast<sockaddr_in6*>(&addr)->sin6_port);
 }
 
-std::ptrdiff_t receive(Socket s, std::span<std::byte> b)
-{
-    return recv(s,
-                reinterpret_cast<char*>(b.data()),
-                static_cast<int>(std::min<std::size_t>(b.size(), INT_MAX)),
-                0);
+std::ptrdiff_t
+receive(Socket s, std::span<std::byte> b) {
+    return recv(
+        s,
+        reinterpret_cast<char*>(b.data()),
+        static_cast<int>(std::min<std::size_t>(b.size(), INT_MAX)),
+        0
+    );
 }
 
-std::ptrdiff_t transmit(Socket s, std::span<const std::byte> b)
-{
+std::ptrdiff_t
+transmit(Socket s, std::span<const std::byte> b) {
 #ifdef MSG_NOSIGNAL
     constexpr int flags = MSG_NOSIGNAL;
 #else
     constexpr int flags = 0;
 #endif
-    return send(s,
-                reinterpret_cast<const char*>(b.data()),
-                static_cast<int>(std::min<std::size_t>(b.size(), INT_MAX)),
-                flags);
+    return send(
+        s,
+        reinterpret_cast<const char*>(b.data()),
+        static_cast<int>(std::min<std::size_t>(b.size(), INT_MAX)),
+        flags
+    );
 }
 
-void send_frame(Socket s, const Frame& f)
-{
+void
+send_frame(Socket s, const Frame& f) {
     auto data = encode(f);
     std::span<const std::byte> rest = data;
     while (!rest.empty()) {
@@ -261,18 +262,21 @@ void send_frame(Socket s, const Frame& f)
     }
 }
 
-Frame receive_frame(Socket s, Decoder& d, int timeout)
-{
+Frame
+receive_frame(Socket s, Decoder& d, int timeout) {
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout);
     std::array<std::byte, 16384> buffer;
     for (;;) {
         auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        deadline - std::chrono::steady_clock::now())
+                        deadline - std::chrono::steady_clock::now()
+        )
                         .count();
         if (left < 0 || poll_one(s, false, static_cast<int>(left)) <= 0)
             throw std::runtime_error("receive timeout");
         auto n = receive(
-            s, std::span<std::byte>(buffer).first(std::min(buffer.size(), d.bytes_needed())));
+            s,
+            std::span<std::byte>(buffer).first(std::min(buffer.size(), d.bytes_needed()))
+        );
         if (n == 0)
             throw std::runtime_error("connection closed");
         if (n < 0) {
@@ -293,48 +297,48 @@ struct Poller::Impl {
     struct Interest {
         bool read, write;
     };
+
     std::unordered_map<Socket, Interest> sockets;
 };
 
-Poller::Poller() : impl_(std::make_unique<Impl>())
-{
+Poller::Poller()
+    : impl_(std::make_unique<Impl>()) {
 #ifdef CHAT_EPOLL
     if (impl_->fd < 0)
         fail("epoll_create1");
 #endif
 }
 
-Poller::~Poller()
-{
+Poller::~Poller() {
 #ifdef CHAT_EPOLL
     close(impl_->fd);
 #endif
 }
 
-void Poller::set(Socket s, bool write, bool read)
-{
+void
+Poller::set(Socket s, bool write, bool read) {
 #ifdef CHAT_EPOLL
     epoll_event event{};
     event.data.fd = s;
-    event.events = (read ? static_cast<std::uint32_t>(EPOLLIN | EPOLLRDHUP) : 0u) |
-                   (write ? static_cast<std::uint32_t>(EPOLLOUT) : 0u);
-    if (epoll_ctl(
-            impl_->fd, impl_->sockets.contains(s) ? EPOLL_CTL_MOD : EPOLL_CTL_ADD, s, &event) < 0)
+    event.events = (read ? static_cast<std::uint32_t>(EPOLLIN | EPOLLRDHUP) : 0u)
+                   | (write ? static_cast<std::uint32_t>(EPOLLOUT) : 0u);
+    if (epoll_ctl(impl_->fd, impl_->sockets.contains(s) ? EPOLL_CTL_MOD : EPOLL_CTL_ADD, s, &event)
+        < 0)
         fail("epoll_ctl");
 #endif
     impl_->sockets[s] = {read, write};
 }
 
-void Poller::remove(Socket s)
-{
+void
+Poller::remove(Socket s) {
 #ifdef CHAT_EPOLL
     epoll_ctl(impl_->fd, EPOLL_CTL_DEL, s, nullptr);
 #endif
     impl_->sockets.erase(s);
 }
 
-std::vector<Ready> Poller::wait(int timeout)
-{
+std::vector<Ready>
+Poller::wait(int timeout) {
     std::vector<Ready> ready;
 #ifdef CHAT_EPOLL
     std::array<epoll_event, 256> events{};
@@ -346,10 +350,12 @@ std::vector<Ready> Poller::wait(int timeout)
     }
     for (int i = 0; i < n; ++i) {
         auto e = events[i];
-        ready.push_back({e.data.fd,
-                         (e.events & (EPOLLIN | EPOLLHUP | EPOLLRDHUP)) != 0,
-                         (e.events & EPOLLOUT) != 0,
-                         (e.events & EPOLLERR) != 0});
+        ready.push_back(
+            {e.data.fd,
+             (e.events & (EPOLLIN | EPOLLHUP | EPOLLRDHUP)) != 0,
+             (e.events & EPOLLOUT) != 0,
+             (e.events & EPOLLERR) != 0}
+        );
     }
 #else
 #ifdef _WIN32
@@ -361,7 +367,8 @@ std::vector<Ready> Poller::wait(int timeout)
         fds.push_back(
             {s,
              static_cast<short>((interest.read ? POLLIN : 0) | (interest.write ? POLLOUT : 0)),
-             0});
+             0}
+        );
 #ifdef _WIN32
     if (fds.empty()) {
         Sleep(static_cast<DWORD>(timeout < 0 ? 1000 : timeout));
@@ -378,10 +385,12 @@ std::vector<Ready> Poller::wait(int timeout)
     }
     for (auto f : fds)
         if (f.revents)
-            ready.push_back({f.fd,
-                             (f.revents & (POLLIN | POLLHUP)) != 0,
-                             (f.revents & POLLOUT) != 0,
-                             (f.revents & (POLLERR | POLLNVAL)) != 0});
+            ready.push_back(
+                {f.fd,
+                 (f.revents & (POLLIN | POLLHUP)) != 0,
+                 (f.revents & POLLOUT) != 0,
+                 (f.revents & (POLLERR | POLLNVAL)) != 0}
+            );
 #endif
     return ready;
 }

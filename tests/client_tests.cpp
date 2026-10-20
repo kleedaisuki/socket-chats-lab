@@ -2,8 +2,8 @@
 #include <random>
 #include <stdexcept>
 
-int main()
-{
+int
+main() {
     std::mt19937 generator(731);
     for (int trial = 0; trial < 2000; ++trial) {
         chat::Frame frame{trial % 2 ? chat::Type::message : chat::Type::receipt, 0, {}};
