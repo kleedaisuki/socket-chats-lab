@@ -13,6 +13,43 @@ room cursor. Acknowledged messages and read cursors survive server restart.
 Existing IPC connections and TUI processes survive upstream reconnect. Offline
 commands fail visibly and are not queued. Loopback listeners remain loopback.
 
+## Isolated two-console demo launchers
+
+The root `demo.py`, `stopdemo.py` and `cleanupdemo.py` reuse the hybrid controller
+with an explicit `demo` profile. The default hybrid CLI and its original paths
+remain unchanged. The demo uses `.cache/showcase`, native `.cache/build/dev`
+clients, the existing `.cache/build/linux` WSL server, loopback port 7778 and
+the dedicated `socket_chat_demo` role/database. `.cache/demo` is deliberately
+not reused: it can contain memory-demo account identities from `scripts/dev.py`.
+
+The launcher opens two native console windows via `CREATE_NEW_CONSOLE` and
+records their PIDs and process creation times. Stop closes only the recorded
+frontends/daemons and the identified WSL server; it retains history. New Windows
+daemon and Linux backend records also carry creation times to reject PID reuse.
+Cleanup validates private local configuration plus database/role ownership
+comments containing a random deployment marker. It uses ordinary `DROP DATABASE`,
+never `WITH (FORCE)` or connection termination. Local state is removed only after
+SQL succeeds and its resolved path and absence of links/junctions are checked.
+Missing ownership configuration requires manual investigation, not takeover.
+
+Executed on Windows / WSL Ubuntu 24.04 on 2026-10-20:
+
+| Command / probe | Result |
+| --- | --- |
+| `wsl --cd <checkout> -- cmake --build .cache/build/linux --parallel 4` | PostgreSQL-enabled server and Linux clients rebuilt successfully; substitute the local checkout path |
+| `python demo.py --no-open --verify` | All six native-TUI/WSL PostgreSQL journey milestones passed, including UTF-8, metadata, read receipts, reconnect and committed history |
+| `python stopdemo.py` twice, then relaunch and verify | Idempotent stop; retained database and account caches work after restart |
+| `python cleanupdemo.py` twice, then relaunch and verify | Owned database/role/state removed; repeated cleanup is a no-op; fresh provisioning and journey succeed |
+| Temporarily replace only the owned database comment, call cleanup, restore comment | Cleanup refuses the ownership mismatch; the database and shared PostgreSQL survive |
+| `python demo.py`, inspect both tracked native images, stop, relaunch | Both separate console frontends stay alive; stop closes them and relaunch opens two new frontends |
+
+Repeated verification initially exposed a harness ambiguity: fixed message text
+could match earlier cached history in another room. Test payloads now include
+the random room ID, preserving all live/metadata assertions while isolating runs.
+Two consecutive retained-history verification runs passed after that correction.
+Generated journey evidence remains under `.cache/showcase/verification/`.
+Console launch checks establish process availability, not visual glyph quality.
+
 ## Reproduce
 
 After starting the dedicated stack with `scripts/hybrid.py`, run from native

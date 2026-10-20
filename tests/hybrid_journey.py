@@ -128,8 +128,8 @@ def main():
             passed("two Windows native TUI processes attached and joined", alice_pid=a.process.pid,
                    bob_pid=b.process.pid)
 
-            first = "Windows 发给 WSL：你好，Klee 🌸 café e\u0301"
-            second = "WSL 经 Windows 返回：收到啦 🐈 中文双向验证"
+            first = f"Windows 发给 WSL：你好，Klee 🌸 café e\u0301 [{room}]"
+            second = f"WSL 经 Windows 返回：收到啦 🐈 中文双向验证 [{room}]"
             mark = b.command("/rooms")
             b.wait(room, after=mark)
             a.command(first)

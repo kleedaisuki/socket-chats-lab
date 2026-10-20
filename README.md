@@ -53,6 +53,37 @@ project files stay in this repository's `.cache/` or `.temp/` directories.
 
 ## PostgreSQL-backed use
 
+### Two-window Windows / WSL demonstration
+
+From Windows PowerShell in the repository root:
+
+```console
+python demo.py
+python stopdemo.py
+python cleanupdemo.py
+```
+
+`demo.py` starts the WSL server and two native Windows account daemons, then
+opens separate Alice and Bob console windows. Both start in the same lobby;
+type messages to chat. `/read` explicitly marks messages read and `/quit` closes
+one frontend. Re-running the launcher replaces only its tracked frontend windows.
+The server uses loopback port 7778 and a dedicated WSL PostgreSQL database/role,
+`socket_chat_demo`. All credentials, logs and account caches stay in the protected
+`.cache/showcase/` directory, separate from the older memory demo and hybrid stack.
+
+`stopdemo.py` stops only these applications, retaining database history and caches.
+**`cleanupdemo.py` erases demo chats**, dropping only the marked demo database/role
+and removing its local state. It refuses unrecognized ownership or active foreign
+database connections; it never stops PostgreSQL or force-terminates SQL sessions.
+
+Prerequisites: native binaries in `.cache/build/dev`, the PostgreSQL-enabled WSL
+server in `.cache/build/linux`, a running WSL PostgreSQL on port 5432, and local
+`wsl -u postgres -- psql` administration access. The launchers reuse the default
+WSL distribution and existing builds; they do not install packages or rebuild.
+For a console-free end-to-end check including persistence and reconnect, run
+`python demo.py --no-open --verify`. It leaves the demo running. This remains
+a local plaintext demonstration, not an Internet-facing deployment.
+
 ### Windows clients with a WSL backend
 
 For the local split deployment, `scripts/hybrid.py` uses the existing native

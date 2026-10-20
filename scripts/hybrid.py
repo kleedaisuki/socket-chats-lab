@@ -22,6 +22,19 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / ".cache" / "hybrid"
 USERS = ("alice", "bob")
+PROFILE = "hybrid"
+
+
+def select_profile(profile):
+    global PROFILE, STATE
+    if profile not in ("hybrid", "demo"):
+        raise ValueError("Unknown deployment profile")
+    PROFILE = profile
+    STATE = ROOT / ".cache" / ("showcase" if profile == "demo" else "hybrid")
+
+
+def backend_command(command):
+    return ["python3", "scripts/hybrid.py", command, "--profile", PROFILE]
 
 
 def read_json(path: Path, default=None):
@@ -111,6 +124,8 @@ def daemon_state(user):
 
 
 def client_path():
+    if PROFILE == "demo":
+        return ROOT / ".cache/build/dev/src/client/chat.exe"
     return ROOT / ".cache" / "build" / "msvc" / "src" / "client" / "Debug" / "chat.exe"
 
 
@@ -155,6 +170,25 @@ def windows_image(pid):
         kernel.CloseHandle(handle)
 
 
+def windows_started(pid):
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    handle = kernel.OpenProcess(0x1000, False, int(pid))
+    if not handle:
+        return None
+    try:
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not kernel.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return times[0].dwHighDateTime << 32 | times[0].dwLowDateTime
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def detached(argv, log, env=None):
     with log.open("wb") as output:
         process = subprocess.Popen([str(part) for part in argv], cwd=ROOT,
@@ -185,21 +219,24 @@ def provision():
     existing = read_json(STATE / "config.json")
     if existing:
         return existing
-    name = "socket_chat_hybrid"
+    name = f"socket_chat_{PROFILE}"
     password = secrets.token_hex(32)
+    marker = secrets.token_hex(32)
     sql = (f"DO $$ BEGIN IF EXISTS (SELECT FROM pg_roles WHERE rolname='{name}') OR "
            f"EXISTS (SELECT FROM pg_database WHERE datname='{name}') THEN "
            "RAISE EXCEPTION 'Hybrid role/database already exists without local configuration; refusing takeover'; "
            "END IF; END $$;\n"
            f"CREATE ROLE {name} LOGIN PASSWORD '{password}';\n"
-           f"CREATE DATABASE {name} OWNER {name} ENCODING 'UTF8' TEMPLATE template0;\n")
+           f"CREATE DATABASE {name} OWNER {name} ENCODING 'UTF8' TEMPLATE template0;\n"
+           f"COMMENT ON DATABASE {name} IS '{marker}';\n"
+           f"COMMENT ON ROLE {name} IS '{marker}';\n")
     result = subprocess.run(["wsl.exe", "-u", "postgres", "--", "psql", "-X", "-v", "ON_ERROR_STOP=1"],
                             input=sql, capture_output=True, text=True, encoding="utf-8",
                             errors="replace", timeout=40, creationflags=subprocess.CREATE_NO_WINDOW)
     if result.returncode:
         raise RuntimeError(result.stderr.replace(password, "[redacted]"))
-    config = {"tenant": "hybrid", "users": {user: secrets.token_hex(32) for user in USERS},
-              "port": 7777, "database": name,
+    config = {"tenant": PROFILE, "users": {user: secrets.token_hex(32) for user in USERS},
+              "port": 7778 if PROFILE == "demo" else 7777, "database": name, "marker": marker,
               "dsn": f"host=127.0.0.1 port=5432 dbname={name} user={name} password={password}"}
     write_json(STATE / "config.json", config)
     return config
@@ -208,12 +245,12 @@ def provision():
 def start_backend(config=None):
     config = config or load_config()
     runtime = read_runtime()
-    owned = wsl("python3", "scripts/hybrid.py", "_backend-status") == "running"
+    owned = wsl(*backend_command("_backend-status")) == "running"
     if owned and tcp_ready(config["port"]):
         return
     if tcp_ready(config["port"]):
         raise RuntimeError(f"Port {config['port']} is occupied; refusing to replace another service")
-    process = detached(["wsl.exe", "--cd", str(ROOT), "--", "python3", "scripts/hybrid.py", "_backend"],
+    process = detached(["wsl.exe", "--cd", str(ROOT), "--", *backend_command("_backend")],
                        STATE / "server.log")
     runtime["server"] = {"pid": process.pid, "port": config["port"], "platform": "WSL"}
     write_json(STATE / "runtime.json", runtime)
@@ -229,7 +266,7 @@ def start_backend(config=None):
 
 
 def stop_backend():
-    wsl("python3", "scripts/hybrid.py", "_backend-stop")
+    wsl(*backend_command("_backend-stop"))
     runtime = read_runtime()
     runtime.pop("server", None)
     write_json(STATE / "runtime.json", runtime)
@@ -241,13 +278,16 @@ def start_daemon(user, config):
     previous = runtime.get(user, {})
     image = windows_image(previous.get("pid"))
     if image and image.resolve() == daemon_path().resolve():
+        if previous.get("started") and windows_started(previous["pid"]) != previous["started"]:
+            raise RuntimeError("Stored daemon PID was reused; refusing to adopt it")
         return
     state = daemon_state(user)
     env = dict(os.environ, CHAT_TOKEN=config["users"][user])
     process = detached([daemon_path(), "--host", "127.0.0.1", "--port", config["port"],
                         "--tenant", config["tenant"], "--user", user, "--state-dir", state],
                        STATE / f"{user}-daemon.log", env)
-    runtime[user] = {"pid": process.pid, "platform": "Windows", "state": str(state)}
+    runtime[user] = {"pid": process.pid, "platform": "Windows", "state": str(state),
+                     "started": windows_started(process.pid)}
     write_json(STATE / "runtime.json", runtime)
     def ready():
         if process.poll() is not None:
@@ -275,6 +315,8 @@ def stop_daemon(user):
     image = windows_image(entry.get("pid"))
     if image:
         if image.resolve() != daemon_path().resolve():
+            raise RuntimeError("Stored daemon PID was reused; refusing to signal it")
+        if entry.get("started") and windows_started(entry["pid"]) != entry["started"]:
             raise RuntimeError("Stored daemon PID was reused; refusing to signal it")
         # taskkill is called only after validating the exact process image.
         subprocess.run(["taskkill", "/PID", str(entry["pid"]), "/F"], check=True,
@@ -312,7 +354,9 @@ def open_terminals():
 def backend():
     config = load_config()
     binary = backend_path()
-    write_json(STATE / "server-pid.json", {"pid": os.getpid(), "executable": str(binary), "platform": "Linux"})
+    started = Path(f"/proc/{os.getpid()}/stat").read_text().rsplit(")", 1)[1].split()[19]
+    write_json(STATE / "server-pid.json", {"pid": os.getpid(), "executable": str(binary),
+                                         "platform": "Linux", "started": started})
     # wsl.exe may attach a Linux PTY even when its Windows parent is detached.
     # Redirect inside Linux so service logs do not depend on that console bridge.
     with (STATE / "server.log").open("ab", buffering=0) as output:
@@ -330,6 +374,9 @@ def backend_stop():
         return
     if Path(f"/proc/{pid}/exe").resolve() != backend_path().resolve():
         raise RuntimeError("Stored Linux PID was reused; refusing to signal it")
+    started = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+    if entry.get("started") and entry["started"] != started:
+        raise RuntimeError("Stored Linux PID was reused; refusing to signal it")
     os.kill(pid, signal.SIGTERM)
     wait_for(lambda: not Path(f"/proc/{pid}").exists(), "WSL server did not exit", timeout=25)
     (STATE / "server-pid.json").unlink(missing_ok=True)
@@ -339,6 +386,8 @@ def backend_status():
     entry = read_json(STATE / "server-pid.json", {})
     pid = entry.get("pid")
     running = bool(pid and Path(f"/proc/{pid}/exe").resolve() == backend_path().resolve())
+    if running and entry.get("started"):
+        running = entry["started"] == Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
     print("running" if running else "stopped")
 
 
@@ -346,7 +395,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["start", "status", "stop", "restart-server", "attach", "open", "verify", "_backend", "_backend-stop", "_backend-status"])
     parser.add_argument("--user", choices=USERS, default="alice")
+    parser.add_argument("--profile", choices=("hybrid", "demo"), default="hybrid")
     args = parser.parse_args()
+    select_profile(args.profile)
     if args.command == "_backend":
         backend()
         return
