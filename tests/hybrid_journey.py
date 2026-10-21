@@ -216,6 +216,25 @@ def main():
                         "original TUI did not survive outage")
             passed("post-reconnect TUI delivery/read and exact history; daemon/TUI PIDs unchanged",
                    daemon_pids={u: after[u]["pid"] for u in ("alice", "bob")}, messages=expected)
+            if "charlie" in hybrid.USERS:
+                c = Tui("charlie", work)
+                cleanup.callback(c.close)
+                c.wait("[online]")
+                mark = c.command("/join " + room)
+                c.wait("[joined] #" + room, after=mark)
+                greeting = f"Charlie 三端互通 🌸 [{room}]"
+                c.command(greeting)
+                a.wait(greeting)
+                b.wait(greeting)
+                reply = f"Alice replies to all three clients [{room}]"
+                a.command(reply)
+                b.wait(reply)
+                c.wait(reply)
+                history = alice.history(room)
+                require([f.fields[4] for f in history] == [text for _, text in expected] + [greeting, reply],
+                        "three-client messages were not committed in order")
+                passed("Charlie TUI sends to Alice/Bob and receives reply; PostgreSQL history exact",
+                       charlie_pid=c.process.pid)
         report["passed"] = True
     except BaseException as error:
         report["error"] = str(error)

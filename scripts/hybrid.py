@@ -26,10 +26,11 @@ PROFILE = "hybrid"
 
 
 def select_profile(profile):
-    global PROFILE, STATE
+    global PROFILE, STATE, USERS
     if profile not in ("hybrid", "demo"):
         raise ValueError("Unknown deployment profile")
     PROFILE = profile
+    USERS = ("alice", "bob", "charlie") if profile == "demo" else ("alice", "bob")
     STATE = ROOT / ".cache" / ("showcase" if profile == "demo" else "hybrid")
 
 
@@ -218,6 +219,12 @@ def tcp_ready(port):
 def provision():
     existing = read_json(STATE / "config.json")
     if existing:
+        missing = [user for user in USERS if user not in existing["users"]]
+        if missing:
+            # Stop before persisting new credentials so interrupted upgrades retry safely.
+            stop_backend()
+            existing["users"].update({user: secrets.token_hex(32) for user in missing})
+            write_json(STATE / "config.json", existing)
         return existing
     name = f"socket_chat_{PROFILE}"
     password = secrets.token_hex(32)
@@ -394,10 +401,12 @@ def backend_status():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["start", "status", "stop", "restart-server", "attach", "open", "verify", "_backend", "_backend-stop", "_backend-status"])
-    parser.add_argument("--user", choices=USERS, default="alice")
+    parser.add_argument("--user", choices=("alice", "bob", "charlie"), default="alice")
     parser.add_argument("--profile", choices=("hybrid", "demo"), default="hybrid")
     args = parser.parse_args()
     select_profile(args.profile)
+    if args.user not in USERS:
+        parser.error("Unknown account for the selected profile")
     if args.command == "_backend":
         backend()
         return

@@ -13,7 +13,7 @@ room cursor. Acknowledged messages and read cursors survive server restart.
 Existing IPC connections and TUI processes survive upstream reconnect. Offline
 commands fail visibly and are not queued. Loopback listeners remain loopback.
 
-## Isolated two-console demo launchers
+## Isolated three-console demo launchers
 
 The root `demo.py`, `stopdemo.py` and `cleanupdemo.py` reuse the hybrid controller
 with an explicit `demo` profile. The default hybrid CLI and its original paths
@@ -22,7 +22,13 @@ clients, the existing `.cache/build/linux` WSL server, loopback port 7778 and
 the dedicated `socket_chat_demo` role/database. `.cache/demo` is deliberately
 not reused: it can contain memory-demo account identities from `scripts/dev.py`.
 
-The launcher opens two native console windows via `CREATE_NEW_CONSOLE` and
+The demo profile uses Alice, Bob and Charlie; the default hybrid profile retains
+Alice and Bob. Existing demo configuration gains only the missing credentials.
+The owned backend stops before those credentials are saved and restarts on launch
+to load them, preserving existing tokens, database history and account caches.
+Stopping before the write makes an interrupted upgrade safe to retry.
+
+The launcher opens three native console windows via `CREATE_NEW_CONSOLE` and
 records their PIDs and process creation times. Stop closes only the recorded
 frontends/daemons and the identified WSL server; it retains history. New Windows
 daemon and Linux backend records also carry creation times to reject PID reuse.
@@ -49,6 +55,18 @@ the random room ID, preserving all live/metadata assertions while isolating runs
 Two consecutive retained-history verification runs passed after that correction.
 Generated journey evidence remains under `.cache/showcase/verification/`.
 Console launch checks establish process availability, not visual glyph quality.
+
+### Three-account update verification (2026-10-21)
+
+`python tests/test_ops.py` passed all seven tests, including profile isolation,
+retained-token/idempotent configuration upgrade, failed-stop safety and three
+tracked frontend launches. `python demo.py --verify` passed the existing six
+persistence/reconnect milestones plus a third real native TUI: Charlie joined the
+test room, sent UTF-8 text received by Alice and Bob, and received Alice's reply.
+The PostgreSQL history contained the exact ordered messages. The launcher then
+opened three interactive consoles; all three recorded process images and creation
+times matched live native clients. Evidence remains in
+`.cache/showcase/verification/result.json` and the per-account TUI logs.
 
 ## Reproduce
 

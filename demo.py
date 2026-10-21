@@ -1,4 +1,4 @@
-"""Start the isolated Windows / WSL two-account demonstration."""
+"""Start the isolated Windows / WSL three-account demonstration."""
 from __future__ import annotations
 
 import argparse
@@ -124,7 +124,7 @@ def main():
         hybrid_journey.main()
     if not args.no_open:
         open_frontends()
-    print("Alice and Bob share the lobby. Type a message; /read marks read; /quit closes one TUI.")
+    print("Alice, Bob and Charlie share the lobby. Type a message; /read marks read; /quit closes one TUI.")
     print("Stop: python stopdemo.py | Delete demo data: python cleanupdemo.py")
 
 

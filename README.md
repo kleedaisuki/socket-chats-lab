@@ -53,7 +53,7 @@ project files stay in this repository's `.cache/` or `.temp/` directories.
 
 ## PostgreSQL-backed use
 
-### Two-window Windows / WSL demonstration
+### Three-window Windows / WSL demonstration
 
 From Windows PowerShell in the repository root:
 
@@ -63,10 +63,12 @@ python stopdemo.py
 python cleanupdemo.py
 ```
 
-`demo.py` starts the WSL server and two native Windows account daemons, then
-opens separate Alice and Bob console windows. Both start in the same lobby;
+`demo.py` starts the WSL server and three native Windows account daemons, then
+opens separate Alice, Bob and Charlie console windows. All start in the same lobby;
 type messages to chat. `/read` explicitly marks messages read and `/quit` closes
 one frontend. Re-running the launcher replaces only its tracked frontend windows.
+Existing two-account demos gain Charlie automatically, retaining credentials and
+history; the dedicated demo server restarts once to load the added account.
 The server uses loopback port 7778 and a dedicated WSL PostgreSQL database/role,
 `socket_chat_demo`. All credentials, logs and account caches stay in the protected
 `.cache/showcase/` directory, separate from the older memory demo and hybrid stack.
